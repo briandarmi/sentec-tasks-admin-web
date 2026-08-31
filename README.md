@@ -175,9 +175,18 @@ Copied wholesale from the Butler consoles so the apps stay visually one product,
 and structured like the Butler admin console specifically, so an admin moving
 between the two is not relearning the furniture: Nuxt 4 SPA (`ssr: false`),
 shadcn-vue (`new-york`, `neutral` base, Tabler icons), Tailwind 4 with the same
-token set, Quicksand, `#027BFF` primary. Sidebar shell, wide content, property
+token set, Quicksand, Sentinel Blue `#27A5F7` primary. Sidebar shell, wide
+content, property
 switcher in the sidebar header.
 
+
+The colour layer comes from the **Sentinel Tech Design System** on
+claude.ai/design: `app/assets/css/tailwind.css` carries the `--st-*` brand scale
+verbatim from that project's `tokens/colors.css`, and every shadcn token is
+expressed in terms of it. The design system's own `--color-*` / `--text-*` alias
+layer is deliberately not imported — those are Tailwind 4's colour and font-size
+utility namespaces, which `@theme inline` already claims. Dark mode is derived
+from the Sentinel Grey scale because the design system defines none.
 ## Not verified yet
 
 - **No browser or component tests.** This environment has no working headless
