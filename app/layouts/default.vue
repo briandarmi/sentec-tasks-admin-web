@@ -11,7 +11,6 @@ import {
   MapPinnedIcon,
   NetworkIcon,
   PlugZapIcon,
-  ScrollTextIcon,
   ShapesIcon,
   SquareKanbanIcon,
   TimerIcon,
@@ -72,11 +71,11 @@ const navGroups = computed<NavGroup[]>(() => [
       { to: '/slas', label: 'SLAs', icon: TimerIcon },
       { to: '/operating-schedules', label: 'Operating Schedules', icon: CalendarClockIcon },
       { to: '/terminology', label: 'Terminology', icon: LanguagesIcon },
-      { to: '/audit', label: 'Audit Trail', icon: ScrollTextIcon },
     ],
   },
   {
     label: 'Reporting',
+    // Group stats admit granted admins and operators; the page handles denial.
     visible: true,
     items: [
       { to: '/group-report', label: 'Group Report', icon: GaugeIcon },
@@ -104,17 +103,16 @@ function isActive(to: string) {
 }
 
 /**
- * Only properties this account administers. Offering one where they are merely
- * staff would switch the whole console to a property whose screens then refuse
- * every request.
+ * Only hotels this account administers — the account's own claim. An operator
+ * has none, so the switcher disappears for them entirely.
  */
-const properties = computed(() => access.adminTenants.value)
+const properties = computed(() => access.adminHotels.value.map(id => session.hotels.value.find(hotel => hotel.id === id) ?? { id, name: id }))
 const selectedTenantId = computed({
-  get: () => session.tenantId.value ?? '',
-  set: (value: string) => session.setTenantId(value),
+  get: () => session.hotelId.value ?? '',
+  set: (value: string) => session.setHotelId(value),
 })
 
-const pageKey = computed(() => `${route.fullPath}:${session.tenantId.value ?? 'none'}`)
+const pageKey = computed(() => `${route.fullPath}:${session.hotelId.value ?? 'none'}`)
 const accountName = computed(() => session.displayName.value || 'Signed in')
 const accountInitials = computed(() =>
   accountName.value.split(' ').map(part => part[0]).slice(0, 2).join('').toUpperCase(),

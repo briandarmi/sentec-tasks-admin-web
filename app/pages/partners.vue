@@ -1,25 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import {
-  CheckIcon,
-  CopyIcon,
-  KeyRoundIcon,
-  PlugZapIcon,
-  PlusIcon,
-  RotateCwIcon,
-  TriangleAlertIcon,
-} from '@lucide/vue'
+import { onMounted, ref } from 'vue'
+import { CheckIcon, CopyIcon, KeyRoundIcon, PlugZapIcon, PlusIcon, TriangleAlertIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { SourceApp } from '~/utils/clientFakeApi'
+import type { Partner, SourceApp } from '~/utils/clientFakeApi'
 import { relativeTime } from '~/utils/task-ui'
-import { SELECT_EMPTY, fromSelectValue } from '~/utils/select-empty'
 
+/**
+ * Integration partners in the real API: registered with a name, issued a
+ * secret exactly once, and controlled by ONE switch — isActive. There is no
+ * rotate-secret route: revocation IS deactivation (verified per request, no
+ * caching), and a new secret means registering a new partner.
+ */
 const api = useTasksApi()
 
-const partners = ref<Awaited<ReturnType<typeof api.listPartners>>>([])
-/** The platform-wide source-app registry: what a partner dispatches AS. */
+const partners = ref<Partner[]>([])
 const sourceApps = ref<SourceApp[]>([])
-const sourceAppByCode = computed(() => new Map(sourceApps.value.map(app => [app.code, app])))
 const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
@@ -27,20 +22,15 @@ const formError = ref('')
 
 const createOpen = ref(false)
 const formName = ref('')
-const formKind = ref('')
-/** SELECT_EMPTY = not mapped; tasks from this partner then badge by name only. */
-const formSourceApp = ref(SELECT_EMPTY)
 
 /**
- * The one and only time a secret is visible.
- *
- * It is AES-256-GCM encrypted at rest and cannot be read back — only rotated.
- * So this panel stays up until dismissed, and says clearly that closing it
- * loses the value.
+ * The one and only time a secret is visible. It is encrypted at rest and no
+ * route can ever return it again, so this panel stays up until dismissed.
  */
-const revealed = ref<{ name: string, secret: string, rotated: boolean } | null>(null)
+const revealed = ref<{ name: string, secret: string } | null>(null)
 const copied = ref(false)
-const rotateTarget = ref<{ id: string, name: string } | null>(null)
+/** Deactivation cuts every token the partner holds, instantly — confirm it. */
+const toggleTarget = ref<Partner | null>(null)
 
 async function load() {
   isLoading.value = true
@@ -60,8 +50,6 @@ async function load() {
 
 function openCreate() {
   formName.value = ''
-  formKind.value = ''
-  formSourceApp.value = SELECT_EMPTY
   formError.value = ''
   createOpen.value = true
 }
@@ -71,15 +59,9 @@ async function save() {
   isSaving.value = true
   formError.value = ''
   try {
-    const created = await api.createPartner({
-      name: formName.value.trim(),
-      kind: formKind.value.trim() || undefined,
-      sourceAppCode: fromSelectValue(formSourceApp.value),
-    })
+    const created = await api.registerPartner(formName.value.trim())
     createOpen.value = false
-    if (created.secretPreview) {
-      revealed.value = { name: created.name, secret: created.secretPreview, rotated: false }
-    }
+    revealed.value = { name: created.name, secret: created.secret }
     await load()
   }
   catch (e) {
@@ -90,17 +72,14 @@ async function save() {
   }
 }
 
-async function confirmRotate() {
-  const target = rotateTarget.value
+async function confirmToggle() {
+  const target = toggleTarget.value
   if (!target || isSaving.value) return
   isSaving.value = true
   errorMessage.value = ''
   try {
-    const rotated = await api.rotatePartnerSecret(target.id)
-    rotateTarget.value = null
-    if (rotated.secretPreview) {
-      revealed.value = { name: rotated.name, secret: rotated.secretPreview, rotated: true }
-    }
+    await api.setPartnerActive(target.id, !target.isActive)
+    toggleTarget.value = null
     await load()
   }
   catch (e) {
@@ -123,13 +102,15 @@ async function copySecret() {
     copied.value = false
   }
 }
+
+onMounted(load)
 </script>
 
 <template>
   <div class="space-y-8">
     <PageHeader
       title="Integration partners"
-      description="Applications allowed to dispatch tasks into Sentec Tasks."
+      description="Applications allowed to dispatch tasks over their own individually-revocable tokens."
       :icon="PlugZapIcon"
     >
       <template #actions>
@@ -153,12 +134,10 @@ async function copySecret() {
         <KeyRoundIcon class="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
         <div class="min-w-0 flex-1 space-y-3">
           <div>
-            <p class="text-sm font-bold text-foreground">
-              {{ revealed.rotated ? 'New secret for' : 'Secret for' }} {{ revealed.name }}
-            </p>
+            <p class="text-sm font-bold text-foreground">Secret for {{ revealed.name }}</p>
             <p class="text-xs text-muted-foreground">
-              This is the only time it will be shown. It is encrypted at rest and cannot be read back — only rotated.
-              <template v-if="revealed.rotated">The previous secret stops working immediately.</template>
+              This is the only time it will be shown. It is encrypted at rest and cannot be read back.
+              There is no rotation route — a compromised secret means deactivating this partner and registering a new one.
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -174,7 +153,7 @@ async function copySecret() {
       </div>
     </div>
 
-    <TableSkeleton v-if="isLoading && partners.length === 0" :rows="4" :columns="5" />
+    <TableSkeleton v-if="isLoading && partners.length === 0" :rows="4" :columns="3" />
 
     <Card v-else class="overflow-hidden rounded-xl pt-0">
       <CardContent class="p-0">
@@ -183,65 +162,28 @@ async function copySecret() {
             <TableHeader>
               <TableRow>
                 <TableHead>Partner</TableHead>
-                <TableHead>Source app</TableHead>
-                <TableHead>Tasks dispatched</TableHead>
-                <TableHead>Last dispatch</TableHead>
-                <TableHead>Event delivery</TableHead>
+                <TableHead>Registered</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead class="text-right" />
               </TableRow>
             </TableHeader>
             <TableBody>
               <TableRow v-for="partner in partners" :key="partner.id">
-                <TableCell>
-                  <p class="font-medium text-foreground">{{ partner.name }}</p>
-                  <p class="text-xs text-muted-foreground">{{ partner.kind }}</p>
-                </TableCell>
-                <TableCell>
-                  <!-- The registry colour is data from the platform, not a theme
-                       token — it must match the badge every client renders. -->
-                  <span
-                    v-if="partner.sourceAppCode && sourceAppByCode.get(partner.sourceAppCode)"
-                    class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium text-foreground"
-                  >
-                    <span
-                      class="h-2 w-2 rounded-full"
-                      :style="{ backgroundColor: sourceAppByCode.get(partner.sourceAppCode)!.badgeColor }"
-                    />
-                    {{ sourceAppByCode.get(partner.sourceAppCode)!.name }}
-                  </span>
-                  <span v-else class="text-xs text-muted-foreground">Not mapped</span>
-                </TableCell>
-                <TableCell class="tabular-nums text-foreground">{{ partner.taskCount }}</TableCell>
-                <TableCell class="whitespace-nowrap text-muted-foreground">
-                  {{ partner.lastDispatchAt ? relativeTime(partner.lastDispatchAt) : 'Never' }}
-                </TableCell>
-                <TableCell>
-                  <!-- Undelivered events are the operationally interesting
-                       number: the partner is not learning about progress. -->
-                  <Badge v-if="partner.undeliveredEventCount > 0" variant="destructive" class="tabular-nums">
-                    {{ partner.undeliveredEventCount }} stuck
-                  </Badge>
-                  <Badge v-else variant="outline">Up to date</Badge>
-                </TableCell>
+                <TableCell class="font-medium text-foreground">{{ partner.name }}</TableCell>
+                <TableCell class="whitespace-nowrap text-muted-foreground">{{ relativeTime(partner.createdAt) }}</TableCell>
                 <TableCell>
                   <Badge :variant="partner.isActive ? 'success' : 'secondary'">
-                    {{ partner.isActive ? 'Active' : 'Inactive' }}
+                    {{ partner.isActive ? 'Active' : 'Deactivated' }}
                   </Badge>
                 </TableCell>
                 <TableCell class="text-right">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    @click="rotateTarget = { id: partner.id, name: partner.name }"
-                  >
-                    <RotateCwIcon />
-                    Rotate secret
+                  <Button size="sm" variant="outline" @click="toggleTarget = partner">
+                    {{ partner.isActive ? 'Deactivate' : 'Reactivate' }}
                   </Button>
                 </TableCell>
               </TableRow>
               <TableRow v-if="!isLoading && partners.length === 0">
-                <TableCell colspan="7" class="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colspan="4" class="py-10 text-center text-sm text-muted-foreground">
                   No partners registered. Tasks still works standalone — partners are only needed to accept work from another app.
                 </TableCell>
               </TableRow>
@@ -251,11 +193,40 @@ async function copySecret() {
       </CardContent>
     </Card>
 
+    <!-- The platform-wide source-app registry: what badges every task with the
+         app it came from. Readable by every authenticated user; curated here. -->
+    <Card class="rounded-xl">
+      <CardHeader class="pb-2">
+        <CardTitle class="text-base font-semibold">Source-app registry</CardTitle>
+        <CardDescription>
+          Resolves a task's source code to a name and badge colour, product-wide.
+          An unregistered code still creates tasks — it just renders unbadged.
+        </CardDescription>
+      </CardHeader>
+      <CardContent class="flex flex-wrap gap-2">
+        <span
+          v-for="app in sourceApps"
+          :key="app.code"
+          class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium text-foreground"
+          :class="app.isActive ? '' : 'opacity-55'"
+        >
+          <span
+            v-if="app.color"
+            class="h-2 w-2 rounded-full"
+            :style="{ backgroundColor: app.color }"
+            aria-hidden="true"
+          />
+          {{ app.name }}
+          <span class="font-mono text-[10px] text-muted-foreground">{{ app.code }}</span>
+        </span>
+      </CardContent>
+    </Card>
+
     <Dialog v-model:open="createOpen">
       <DialogContent class="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Register partner</DialogTitle>
-          <DialogDescription>Issues a JWT secret the application uses to dispatch tasks.</DialogDescription>
+          <DialogDescription>Issues the JWT secret the application signs its own tokens with.</DialogDescription>
         </DialogHeader>
 
         <Alert v-if="formError" variant="destructive">
@@ -268,31 +239,10 @@ async function copySecret() {
             <Label for="partner-name">Name</Label>
             <Input id="partner-name" v-model="formName" placeholder="e.g. Sentec PMS" />
           </div>
-          <div class="space-y-2">
-            <Label for="partner-kind">What it is</Label>
-            <Input id="partner-kind" v-model="formKind" placeholder="e.g. Property management" />
-          </div>
-          <div class="space-y-2">
-            <Label>Source app</Label>
-            <Select v-model="formSourceApp">
-              <SelectTrigger class="w-full">
-                <SelectValue placeholder="Not mapped" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem :value="SELECT_EMPTY">Not mapped</SelectItem>
-                <SelectItem v-for="app in sourceApps.filter(a => a.isActive)" :key="app.code" :value="app.code">
-                  {{ app.name }}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            <p class="text-xs text-muted-foreground">
-              The registry entry this partner dispatches as — it decides the badge on every task it raises.
-            </p>
-          </div>
           <Alert>
             <TriangleAlertIcon />
             <AlertTitle>The secret is shown once</AlertTitle>
-            <AlertDescription>Copy it before closing the panel. It cannot be retrieved later, only rotated.</AlertDescription>
+            <AlertDescription>Copy it before closing the panel. It cannot be retrieved or rotated later — only replaced by a new registration.</AlertDescription>
           </Alert>
         </div>
 
@@ -305,19 +255,26 @@ async function copySecret() {
       </DialogContent>
     </Dialog>
 
-    <AlertDialog :open="Boolean(rotateTarget)" @update:open="value => { if (!value) rotateTarget = null }">
+    <AlertDialog :open="Boolean(toggleTarget)" @update:open="value => { if (!value) toggleTarget = null }">
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Rotate {{ rotateTarget?.name }}'s secret?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {{ toggleTarget?.isActive ? `Deactivate ${toggleTarget?.name}?` : `Reactivate ${toggleTarget?.name}?` }}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            The current secret stops working the moment this completes, so that application cannot dispatch
-            tasks until it is updated with the new one. Have someone ready to deploy it.
+            <template v-if="toggleTarget?.isActive">
+              Every token this partner has issued stops verifying the moment this completes — the check runs
+              per request, nothing is cached. It can dispatch nothing until reactivated.
+            </template>
+            <template v-else>
+              Its existing secret starts verifying again immediately.
+            </template>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel :disabled="isSaving">Cancel</AlertDialogCancel>
-          <AlertDialogAction :disabled="isSaving" @click="confirmRotate">
-            {{ isSaving ? 'Rotating…' : 'Rotate secret' }}
+          <AlertDialogAction :disabled="isSaving" @click.prevent="confirmToggle">
+            {{ isSaving ? 'Working…' : toggleTarget?.isActive ? 'Deactivate' : 'Reactivate' }}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

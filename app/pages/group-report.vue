@@ -1,30 +1,44 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { GaugeIcon, InfoIcon, RefreshCwIcon } from '@lucide/vue'
-import { useTasksApi, type GroupReport } from '~/composables/useTasksApi'
-import type { TenantGroup } from '~/utils/clientFakeApi'
+import { computed, onMounted, ref } from 'vue'
+import { GaugeIcon } from '@lucide/vue'
+import { useTasksApi, type GroupStats } from '~/composables/useTasksApi'
+import { useSession } from '~/composables/useSession'
+import type { TaskStatus } from '~/utils/clientFakeApi'
+import { statusMeta } from '~/utils/task-ui'
 
+definePageMeta({ title: 'Group Report' })
+
+/**
+ * GET /v1/groups/{id}/stats — the cross-tenant surface. It admits a platform
+ * operator, or an admin holding a grant on that specific group; everyone else
+ * gets the same 403 whether or not the group exists. The group picker is fed
+ * from the operator listing when available, else from the signed-in account's
+ * own grants — a granted admin cannot enumerate groups they don't hold.
+ */
 const api = useTasksApi()
+const session = useSession()
 
-const groups = ref<TenantGroup[]>([])
+interface GroupOption { id: string, name: string }
+
+const groupOptions = ref<GroupOption[]>([])
 const selectedGroupId = ref('')
-const report = ref<GroupReport | null>(null)
+const report = ref<GroupStats | null>(null)
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-/** Scale the bars to the busiest property rather than the total. */
-const peak = computed(() => Math.max(1, ...(report.value?.properties ?? []).map(p => p.open)))
+const STATUSES: TaskStatus[] = ['NEW', 'IN_PROGRESS', 'SUBMITTED', 'PENDING', 'FINISHED', 'VERIFIED', 'CANCELLED']
 
-async function loadGroups() {
+async function loadOptions() {
   try {
-    groups.value = await api.listTenantGroups()
-    if (groups.value.length && !selectedGroupId.value) {
-      selectedGroupId.value = groups.value[0]!.id
-    }
+    // Operator path: the full platform listing.
+    const groups = await api.listTenantGroups()
+    groupOptions.value = groups.map(g => ({ id: g.id, name: g.name }))
   }
-  catch (e) {
-    errorMessage.value = (e as Error).message
+  catch {
+    // Granted-admin path: only the groups on the account's own grants.
+    groupOptions.value = (session.staff.value?.groupGrants ?? []).map(id => ({ id, name: `Group ${id.slice(0, 8).toUpperCase()}` }))
   }
+  if (!selectedGroupId.value && groupOptions.value[0]) selectedGroupId.value = groupOptions.value[0].id
 }
 
 async function loadReport() {
@@ -32,92 +46,74 @@ async function loadReport() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    report.value = await api.getGroupReport(selectedGroupId.value)
+    report.value = await api.getGroupStats(selectedGroupId.value)
   }
   catch (e) {
-    errorMessage.value = (e as Error).message
     report.value = null
+    errorMessage.value = (e as Error).message
   }
   finally {
     isLoading.value = false
   }
 }
 
-watch(selectedGroupId, loadReport)
-
 onMounted(async () => {
-  await loadGroups()
+  await loadOptions()
   await loadReport()
 })
+
+const hasAccessToAny = computed(() => groupOptions.value.length > 0)
 </script>
 
 <template>
   <div class="space-y-8">
     <PageHeader
       title="Group report"
-      description="Open work across every property in a brand you can reach."
+      description="Task status and SLA breaches across every property in a brand group."
       :icon="GaugeIcon"
-    >
-      <template #actions>
-        <Button size="sm" variant="outline" :disabled="isLoading || !selectedGroupId" @click="loadReport">
-          <RefreshCwIcon class="h-4 w-4" :class="isLoading ? 'animate-spin' : ''" />
-          Refresh
-        </Button>
-      </template>
-    </PageHeader>
-
-    <Alert v-if="errorMessage" variant="destructive">
-      <AlertTitle>Something went wrong</AlertTitle>
-      <AlertDescription>{{ errorMessage }}</AlertDescription>
-    </Alert>
+    />
 
     <EmptyState
-      v-if="!isLoading && groups.length === 0"
+      v-if="!hasAccessToAny"
       :icon="GaugeIcon"
-      title="No groups available"
-      description="You can only report on a brand where you can reach at least one property."
+      title="No group access"
+      description="This account holds no group grant. Only a Sentinel Tech operator can grant one — a property admin cannot, including to themselves."
     />
 
     <template v-else>
-      <div class="max-w-sm space-y-2">
-        <Label>Group</Label>
-        <Select v-model="selectedGroupId">
-          <SelectTrigger class="w-full"><SelectValue placeholder="Select group" /></SelectTrigger>
+      <div class="flex max-w-sm items-center gap-2">
+        <Select v-model="selectedGroupId" @update:model-value="loadReport">
+          <SelectTrigger class="w-full">
+            <SelectValue placeholder="Pick a group" />
+          </SelectTrigger>
           <SelectContent>
-            <SelectItem v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }}</SelectItem>
+            <SelectItem v-for="option in groupOptions" :key="option.id" :value="option.id">{{ option.name }}</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      <div v-if="isLoading && !report" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Skeleton v-for="n in 4" :key="n" class="h-28 rounded-xl" />
-      </div>
+      <Alert v-if="errorMessage" variant="destructive">
+        <AlertTitle>Could not load the report</AlertTitle>
+        <AlertDescription>{{ errorMessage }}</AlertDescription>
+      </Alert>
+
+      <TableSkeleton v-if="isLoading && !report" :rows="3" :columns="5" />
 
       <template v-else-if="report">
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Total tasks" :value="report.totals.total" :icon="GaugeIcon" />
-          <StatCard label="Open" :value="report.totals.open" :icon="GaugeIcon" />
-          <StatCard label="To claim" :value="report.totals.unclaimed" :icon="GaugeIcon" />
-          <StatCard label="SLA breached" :value="report.totals.breached" :icon="GaugeIcon" />
+        <div class="grid grid-cols-3 gap-4">
+          <div class="rounded-xl border bg-card p-5 shadow-sm">
+            <p class="text-3xl font-bold tabular-nums text-foreground">{{ report.totals.openTotal }}</p>
+            <p class="text-sm font-semibold text-foreground">Open across the group</p>
+          </div>
+          <div class="rounded-xl border bg-card p-5 shadow-sm">
+            <p class="text-3xl font-bold tabular-nums" :class="report.totals.responseBreached ? 'text-destructive' : 'text-foreground'">{{ report.totals.responseBreached }}</p>
+            <p class="text-sm font-semibold text-foreground">Response breaches</p>
+          </div>
+          <div class="rounded-xl border bg-card p-5 shadow-sm">
+            <p class="text-3xl font-bold tabular-nums" :class="report.totals.resolutionBreached ? 'text-destructive' : 'text-foreground'">{{ report.totals.resolutionBreached }}</p>
+            <p class="text-sm font-semibold text-foreground">Resolution breaches</p>
+          </div>
         </div>
-
-        <!--
-          The report is bounded to the properties the caller can actually reach,
-          which means the totals are not the brand's totals when reach is
-          partial. Saying so is the difference between a useful number and a
-          misleading one.
-        -->
-        <Alert v-if="report.hiddenPropertyCount > 0">
-          <InfoIcon />
-          <AlertTitle>
-            {{ report.hiddenPropertyCount }}
-            {{ report.hiddenPropertyCount === 1 ? 'property is' : 'properties are' }} not included
-          </AlertTitle>
-          <AlertDescription>
-            These figures cover only the properties you can access, so they are not the whole of {{ report.tenantGroupName }}.
-            Cross-property reach comes from a group grant, which an operator issues.
-          </AlertDescription>
-        </Alert>
 
         <Card class="overflow-hidden rounded-xl pt-0">
           <CardContent class="p-0">
@@ -126,26 +122,25 @@ onMounted(async () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Property</TableHead>
-                    <TableHead>Open</TableHead>
-                    <TableHead>To claim</TableHead>
-                    <TableHead>Breached</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead class="w-40">Load</TableHead>
+                    <TableHead v-for="status in STATUSES" :key="status" class="text-right">{{ statusMeta(status).label }}</TableHead>
+                    <TableHead class="text-right">Open</TableHead>
+                    <TableHead class="text-right">Breached</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  <TableRow v-for="row in report.properties" :key="row.tenantId">
-                    <TableCell class="font-medium text-foreground">{{ row.tenantName }}</TableCell>
-                    <TableCell class="tabular-nums text-foreground">{{ row.open }}</TableCell>
-                    <TableCell class="tabular-nums text-foreground">{{ row.unclaimed }}</TableCell>
-                    <TableCell>
-                      <Badge :variant="row.breached > 0 ? 'destructive' : 'outline'" class="tabular-nums">{{ row.breached }}</Badge>
+                  <TableRow v-for="tenant in report.tenants" :key="tenant.hotelRef">
+                    <TableCell class="font-medium text-foreground">{{ tenant.name }}</TableCell>
+                    <TableCell v-for="status in STATUSES" :key="status" class="text-right tabular-nums text-foreground">
+                      {{ tenant.byStatus[status] ?? 0 }}
                     </TableCell>
-                    <TableCell class="tabular-nums text-muted-foreground">{{ row.total }}</TableCell>
-                    <TableCell>
-                      <div class="h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div class="h-full rounded-full bg-primary/60" :style="{ width: `${(row.open / peak) * 100}%` }" />
-                      </div>
+                    <TableCell class="text-right font-semibold tabular-nums text-foreground">{{ tenant.openTotal }}</TableCell>
+                    <TableCell class="text-right tabular-nums" :class="tenant.responseBreached + tenant.resolutionBreached ? 'text-destructive' : 'text-muted-foreground'">
+                      {{ tenant.responseBreached + tenant.resolutionBreached }}
+                    </TableCell>
+                  </TableRow>
+                  <TableRow v-if="report.tenants.length === 0">
+                    <TableCell :colspan="STATUSES.length + 3" class="py-10 text-center text-sm text-muted-foreground">
+                      This group has no member properties yet.
                     </TableCell>
                   </TableRow>
                 </TableBody>

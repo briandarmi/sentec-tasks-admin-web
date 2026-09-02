@@ -62,13 +62,13 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   /**
-   * Land on a property this account actually administers. The session picks the
-   * first property it can reach, which for someone who is admin at one and staff
-   * at another can be the one with nothing to configure.
+   * Land on a hotel this account actually administers. The session picks the
+   * first hotel in the claim, which is already correct for admins; operators
+   * have no hotel at all.
    */
-  if (!access.isOperator.value && session.activeTenant.value?.role !== 'admin') {
-    const first = access.adminTenants.value[0]
-    if (first) session.setTenantId(first.id)
+  if (!access.isOperator.value && !session.hotelId.value) {
+    const first = access.adminHotels.value[0]
+    if (first) session.setHotelId(first)
   }
 
   if (OPERATOR_ROUTES.has(to.path)) {
@@ -78,14 +78,12 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   /**
-   * Everything else configures a property, which needs admin at the active one
-   * or an operator. Admissibility is settled above and the active property was
-   * just corrected, so this is a backstop; signing out is how it fails, because
-   * redirecting an authenticated user to '/login' would only bounce back.
+   * Everything else is a hotel-scoped property screen. An operator has no
+   * hotel claim — the API refuses them there — so they live on the platform
+   * screens instead of bouncing off every property request.
    */
-  const role = session.role.value
-  if (role !== 'admin' && role !== 'operator') {
-    await session.logout()
-    return navigateTo({ path: '/login', query: { denied: 'console' } })
+  // Group reports admit operators (and granted admins) — the one shared screen.
+  if (session.isOperator.value && to.path !== '/group-report') {
+    return navigateTo('/platform')
   }
 })

@@ -2,7 +2,10 @@
 import { onMounted, ref } from 'vue'
 import { LanguagesIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import { TERMINOLOGY_KEYS, type TerminologyKey } from '~/utils/clientFakeApi'
+
+/** The vertical profile's four product terms — the keys the API merges over. */
+const TERMINOLOGY_KEYS = ['requester', 'visit', 'location', 'department'] as const
+type TerminologyKey = typeof TERMINOLOGY_KEYS[number]
 
 const api = useTasksApi()
 
@@ -62,7 +65,7 @@ async function save(term: TerminologyKey) {
   errors.delete(term)
   rowErrors.value = errors
   try {
-    const map = await api.setTerminology(term, value)
+    const map = await api.setTerminologyTerm(term, value)
     values.value = { ...emptyTerms(), ...map }
     drafts.value = { ...drafts.value, [term]: values.value[term] }
   }

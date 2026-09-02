@@ -2,11 +2,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { PencilIcon, PlusIcon, ShapesIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { CatalogCategory } from '~/utils/clientFakeApi'
+import type { Category } from '~/utils/clientFakeApi'
 
 const api = useTasksApi()
 
-const categories = ref<CatalogCategory[]>([])
+const categories = ref<Category[]>([])
 const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
@@ -38,7 +38,7 @@ async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    categories.value = await api.listCatalogCategories()
+    categories.value = await api.listCategories()
   }
   catch (e) {
     errorMessage.value = (e as Error).message
@@ -59,7 +59,7 @@ function openCreate() {
   dialogOpen.value = true
 }
 
-function openEdit(category: CatalogCategory) {
+function openEdit(category: Category) {
   editId.value = category.id
   formName.value = category.name
   formCode.value = category.code
@@ -75,7 +75,7 @@ async function save() {
   isSaving.value = true
   formError.value = ''
   try {
-    await api.upsertCatalogCategory({
+    await api.upsertCategory({
       id: editId.value,
       name: formName.value,
       code: formCode.value,

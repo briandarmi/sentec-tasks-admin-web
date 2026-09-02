@@ -1,17 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { PencilIcon, PlusIcon, UserRoundMinusIcon, UsersRoundIcon } from '@lucide/vue'
-import { useTasksApi, type StaffMember } from '~/composables/useTasksApi'
-import type { Department, Team } from '~/utils/clientFakeApi'
-import { fullName } from '~/utils/task-ui'
+import { useTasksApi } from '~/composables/useTasksApi'
+import type { HotelDepartment, Team } from '~/utils/clientFakeApi'
 
 const api = useTasksApi()
 
-type TeamRow = Team & { memberCount: number }
+type TeamRow = Team
 
 const teams = ref<TeamRow[]>([])
-const departments = ref<Department[]>([])
-const staff = ref<StaffMember[]>([])
+const departments = ref<HotelDepartment[]>([])
+const staff = ref<Awaited<ReturnType<typeof api.listStaff>>>([])
 const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
@@ -27,7 +26,7 @@ const formActive = ref(true)
 const dialogTitle = computed(() => (editId.value ? 'Edit team' : 'New team'))
 const canSave = computed(() => !isSaving.value && Boolean(formName.value.trim()))
 
-const departmentName = computed(() => new Map(departments.value.map(d => [d.id, d.name])))
+const departmentName = computed(() => new Map(departments.value.map(d => [d.id, d.departmentName])))
 
 // ── members ───────────────────────────────────────────────────────────────────
 
@@ -62,7 +61,7 @@ const currentMembers = computed(() => {
   const ids = membersByTeam.value.get(team.id) ?? []
   return ids.map(userId => ({
     userId,
-    name: fullName(staff.value.find(s => s.userId === userId) ?? null) || `User ${userId}`,
+    name: staff.value.find(s => s.id === userId)?.name ?? `Staff ${userId.slice(0, 8)}`,
   }))
 })
 
@@ -70,7 +69,7 @@ const addableStaff = computed(() => {
   const team = membersTeam.value
   if (!team) return []
   const memberIds = new Set(membersByTeam.value.get(team.id) ?? [])
-  return staff.value.filter(person => !memberIds.has(person.userId))
+  return staff.value.filter(person => !memberIds.has(person.id))
 })
 
 async function load() {
@@ -79,7 +78,7 @@ async function load() {
   try {
     const [loadedTeams, loadedDepartments, loadedStaff] = await Promise.all([
       api.listTeams(),
-      api.listDepartments(),
+      api.listHotelDepartments(),
       api.listStaff(),
     ])
     teams.value = loadedTeams
@@ -108,7 +107,7 @@ function openEdit(team: TeamRow) {
   editId.value = team.id
   formName.value = team.name
   formDescription.value = team.description ?? ''
-  formDepartmentId.value = team.departmentId ?? ''
+  formDepartmentId.value = team.hotelDepartmentId ?? ''
   formActive.value = team.isActive
   formError.value = ''
   dialogOpen.value = true
@@ -123,7 +122,7 @@ async function save() {
       id: editId.value,
       name: formName.value,
       description: formDescription.value.trim() || null,
-      departmentId: formDepartmentId.value || null,
+      hotelDepartmentId: formDepartmentId.value || null,
       isActive: formActive.value,
     })
     await load()
@@ -160,8 +159,6 @@ async function openMembers(team: TeamRow) {
 
 function setTeamMembers(teamId: string, ids: string[]) {
   membersByTeam.value = new Map(membersByTeam.value).set(teamId, ids)
-  const team = teams.value.find(t => t.id === teamId)
-  if (team) team.memberCount = ids.length
 }
 
 async function addMember() {
@@ -260,10 +257,14 @@ onMounted(load)
                   <p v-if="team.description" class="max-w-72 truncate text-xs text-muted-foreground">{{ team.description }}</p>
                 </TableCell>
                 <TableCell class="text-foreground">
-                  {{ team.departmentId ? departmentName.get(team.departmentId) ?? '—' : 'Cross-department' }}
+                  {{ team.hotelDepartmentId ? departmentName.get(team.hotelDepartmentId) ?? '—' : 'Cross-department' }}
                 </TableCell>
                 <TableCell>
-                  <Badge variant="secondary" class="tabular-nums">{{ team.memberCount }}</Badge>
+                  <!-- The list endpoint carries no member count; it shows once
+                       the team's member list has been opened. -->
+                  <Badge variant="secondary" class="tabular-nums">
+                    {{ membersByTeam.get(team.id)?.length ?? '—' }}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <Badge :variant="team.isActive ? 'success' : 'secondary'">
@@ -325,7 +326,7 @@ onMounted(load)
               </SelectTrigger>
               <SelectContent>
                 <SelectItem :value="SELECT_EMPTY">Cross-department</SelectItem>
-                <SelectItem v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</SelectItem>
+                <SelectItem v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.departmentName }}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -393,8 +394,8 @@ onMounted(load)
                   <SelectValue placeholder="Choose a staff member" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem v-for="person in addableStaff" :key="person.userId" :value="person.userId">
-                    {{ person.firstName }} {{ person.lastName }}
+                  <SelectItem v-for="person in addableStaff" :key="person.id" :value="person.id">
+                    {{ person.name }}
                   </SelectItem>
                 </SelectContent>
               </Select>

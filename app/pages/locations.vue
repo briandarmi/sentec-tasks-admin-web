@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { MapPinIcon, PencilIcon, PlusIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { LocationType, PropertyLocation } from '~/utils/clientFakeApi'
+import type { Location as PropertyLocation, LocationType } from '~/utils/clientFakeApi'
 
 const api = useTasksApi()
 

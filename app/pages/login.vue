@@ -11,7 +11,7 @@ const route = useRoute()
 const session = useSession()
 const access = useConsoleAccess()
 
-const username = ref('')
+const email = ref('')
 const password = ref('')
 const isSubmitting = ref(false)
 // The gate signs a turned-away account out and sends it here with the reason, so
@@ -25,11 +25,11 @@ const errorMessage = ref(route.query.denied === 'console' ? CONSOLE_DENIED_MESSA
  */
 const demos = ref<ReturnType<typeof demoLogins>>([])
 onMounted(() => {
-  demos.value = demoLogins().filter(demo => admitsRole(demo.role))
+  demos.value = demoLogins().filter(demo => admitsRole(demo.role, demo.isOperator))
 })
 
-function autofill(user: string, pass: string) {
-  username.value = user
+function autofill(demoEmail: string, pass: string) {
+  email.value = demoEmail
   password.value = pass
 }
 
@@ -38,7 +38,7 @@ async function submit() {
   errorMessage.value = ''
   isSubmitting.value = true
   try {
-    const result = await session.login({ username: username.value, password: password.value })
+    const result = await session.login({ email: email.value, password: password.value })
     if (!result.ok) {
       errorMessage.value = result.message
       return
@@ -52,15 +52,16 @@ async function submit() {
       return
     }
 
-    // Open on a property this account administers, not merely the first one it
-    // can reach — those differ for an admin who is also staff elsewhere.
+    // Open on a hotel this account administers; an operator has none and
+    // lands on the platform screens instead.
     if (!access.isOperator.value) {
-      const first = access.adminTenants.value[0]
-      if (first) session.setTenantId(first.id)
+      const first = access.adminHotels.value[0]
+      if (first) session.setHotelId(first)
     }
 
     // Honour a deep link that bounced through the auth gate.
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    const fallback = access.isOperator.value ? '/platform' : '/'
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : fallback
     await navigateTo(redirect)
   }
   finally {
@@ -81,15 +82,16 @@ async function submit() {
       <CardContent>
         <form class="space-y-5" @submit.prevent="submit">
           <div class="space-y-2">
-            <Label for="username">Username</Label>
+            <Label for="email">Email</Label>
             <Input
-              id="username"
-              v-model="username"
+              id="email"
+              v-model="email"
+              type="email"
               class="w-full"
               autocomplete="username"
               autocapitalize="none"
               spellcheck="false"
-              placeholder="Enter username"
+              placeholder="you@property.example"
             />
           </div>
 
@@ -122,15 +124,15 @@ async function submit() {
           <div class="grid grid-cols-2 gap-2">
             <Button
               v-for="demo in demos"
-              :key="demo.username"
+              :key="demo.email"
               type="button"
               variant="outline"
               size="sm"
               class="justify-start text-xs"
-              @click="autofill(demo.username, demo.password)"
+              @click="autofill(demo.email, demo.password)"
             >
               <WandSparklesIcon class="size-3" />
-              <span class="truncate capitalize">{{ demo.username }}</span>
+              <span class="truncate">{{ demo.name }}</span>
             </Button>
           </div>
         </div>

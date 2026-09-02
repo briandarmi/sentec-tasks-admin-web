@@ -2,16 +2,16 @@
 import { computed, onMounted, ref } from 'vue'
 import { CalendarClockIcon, ClockIcon, PencilIcon, PlusIcon, Trash2Icon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { Department, OperatingException, OperatingSchedule, OperatingWindow } from '~/utils/clientFakeApi'
+import type { HotelDepartment, OperatingException, OperatingSchedule, OperatingWindow } from '~/utils/clientFakeApi'
 
 const api = useTasksApi()
 
 const schedules = ref<OperatingSchedule[]>([])
-const departments = ref<Department[]>([])
+const departments = ref<HotelDepartment[]>([])
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-const departmentName = computed(() => new Map(departments.value.map(d => [d.id, d.name])))
+const departmentName = computed(() => new Map(departments.value.map(d => [d.id, d.departmentName])))
 
 const WEEKDAY_LABELS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -162,7 +162,7 @@ async function load() {
   try {
     const [loadedSchedules, loadedDepartments] = await Promise.all([
       api.listOperatingSchedules(),
-      api.listDepartments(),
+      api.listHotelDepartments(),
     ])
     schedules.value = loadedSchedules
     departments.value = loadedDepartments
@@ -188,7 +188,7 @@ function openEdit(schedule: OperatingSchedule) {
   editId.value = schedule.id
   formName.value = schedule.name
   formDefault.value = schedule.isDefault
-  formDepartmentId.value = schedule.departmentId ?? ''
+  formDepartmentId.value = schedule.hotelDepartmentId ?? ''
   detailsError.value = ''
   detailsOpen.value = true
 }
@@ -206,7 +206,7 @@ async function saveDetails() {
       id: editId.value,
       name: formName.value,
       isDefault: formDefault.value,
-      departmentId: formDepartmentId.value || null,
+      hotelDepartmentId: formDepartmentId.value || null,
       windows: existing?.windows ?? [],
       exceptions: existing?.exceptions ?? [],
     })
@@ -266,7 +266,7 @@ async function saveHours() {
       id: schedule.id,
       name: schedule.name,
       isDefault: schedule.isDefault,
-      departmentId: schedule.departmentId,
+      hotelDepartmentId: schedule.hotelDepartmentId,
       windows,
       exceptions,
     })
@@ -330,7 +330,7 @@ onMounted(load)
                   <span v-else class="text-muted-foreground">{{ NOT_DEFAULT_LABEL }}</span>
                 </TableCell>
                 <TableCell class="text-foreground">
-                  {{ schedule.departmentId ? departmentName.get(schedule.departmentId) ?? '—' : NO_DEPARTMENT_LABEL }}
+                  {{ schedule.hotelDepartmentId ? departmentName.get(schedule.hotelDepartmentId) ?? '—' : NO_DEPARTMENT_LABEL }}
                 </TableCell>
                 <TableCell class="text-muted-foreground">{{ hoursSummary(schedule) }}</TableCell>
                 <TableCell class="text-right">
@@ -383,7 +383,7 @@ onMounted(load)
               </SelectTrigger>
               <SelectContent>
                 <SelectItem :value="SELECT_EMPTY">{{ NO_DEPARTMENT_LABEL }}</SelectItem>
-                <SelectItem v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.name }}</SelectItem>
+                <SelectItem v-for="dept in departments" :key="dept.id" :value="dept.id">{{ dept.departmentName }}</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -2,12 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { PencilIcon, PlusIcon, Trash2Icon, UtensilsCrossedIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { CatalogCategory, CatalogItem, TaskPriority } from '~/utils/clientFakeApi'
+import type { Category, CatalogItem, TaskPriority } from '~/utils/clientFakeApi'
 import { TASK_PRIORITIES, formatMinutes, priorityMeta } from '~/utils/task-ui'
 
 const api = useTasksApi()
 
-const categories = ref<CatalogCategory[]>([])
+const categories = ref<Category[]>([])
 const items = ref<CatalogItem[]>([])
 const isLoading = ref(false)
 const isSaving = ref(false)
@@ -91,7 +91,7 @@ async function load() {
   errorMessage.value = ''
   try {
     const [loadedCategories, loadedItems] = await Promise.all([
-      api.listCatalogCategories(),
+      api.listCategories(),
       api.listCatalogItems(),
     ])
     categories.value = loadedCategories
@@ -126,8 +126,8 @@ function openEdit(item: CatalogItem) {
   editId.value = item.id
   formName.value = item.name
   formDescription.value = item.description ?? ''
-  formCategoryId.value = item.categoryId
-  formQuantity.value = item.quantityEnabled
+  formCategoryId.value = item.categoryId ?? ''
+  formQuantity.value = item.itemQuantity
   formPriority.value = item.defaultPriority
   formRequiresLocation.value = item.requiresLocation
   formMinPhotos.value = String(item.minProofPhotos)
@@ -158,7 +158,7 @@ async function save() {
       categoryId: formCategoryId.value,
       name: formName.value,
       description: formDescription.value.trim() || null,
-      quantityEnabled: formQuantity.value,
+      itemQuantity: formQuantity.value,
       defaultPriority: formPriority.value,
       requiresLocation: formRequiresLocation.value,
       // Blank steps are dropped, not saved: an empty label would seed a blank
@@ -271,8 +271,8 @@ onMounted(load)
                     </span>
                   </TableCell>
                   <TableCell>
-                    <Badge :variant="item.quantityEnabled ? 'secondary' : 'outline'">
-                      {{ item.quantityEnabled ? 'Takes a number' : 'Single' }}
+                    <Badge :variant="item.itemQuantity ? 'secondary' : 'outline'">
+                      {{ item.itemQuantity ? 'Takes a number' : 'Single' }}
                     </Badge>
                   </TableCell>
                   <TableCell class="text-foreground">
