@@ -2,7 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { MapPinnedIcon, PencilIcon, PlusIcon, Trash2Icon, TriangleAlertIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { CatalogCategory, CatalogItem, Department, RoutingRule, Sla } from '~/utils/clientFakeApi'
+import type { CatalogCategory, CatalogItem, Department, LocationType, RoutingRule, Sla, TaskPriority } from '~/utils/clientFakeApi'
+import { routingTier } from '~/utils/clientFakeApi'
+import { TASK_PRIORITIES, priorityMeta } from '~/utils/task-ui'
 
 const api = useTasksApi()
 
@@ -11,6 +13,7 @@ const departments = ref<Department[]>([])
 const slas = ref<Sla[]>([])
 const items = ref<CatalogItem[]>([])
 const categories = ref<CatalogCategory[]>([])
+const locationTypes = ref<LocationType[]>([])
 
 const isLoading = ref(false)
 const isSaving = ref(false)
@@ -19,33 +22,46 @@ const formError = ref('')
 
 const dialogOpen = ref(false)
 const editId = ref<string | undefined>()
-const formPriority = ref(50)
-/** One matcher kind at a time — a rule that matched on three things at once
- *  would be impossible to reason about when tracing why a task landed somewhere. */
-const formMatchKind = ref<'item' | 'category' | 'partner'>('category')
+/**
+ * Exactly one matcher — the matcher IS the rule's specificity tier, so a rule
+ * matching two things at once would sit in two tiers and be impossible to
+ * trace. "Catch-all" is the deliberate no-matcher tier at the bottom.
+ */
+const formMatchKind = ref<'item' | 'category' | 'locationType' | 'priority' | 'catchall'>('category')
 const formMatchValue = ref('')
 const formDepartmentId = ref('')
 const formSlaId = ref('')
 const formRemark = ref('')
 const formActive = ref(true)
 
+const TIER_LABELS: Record<string, string> = {
+  ITEM: 'Item',
+  CATEGORY: 'Category',
+  LOCATION_TYPE: 'Location type',
+  PRIORITY: 'Priority',
+  CATCH_ALL: 'Catch-all',
+}
+
 const nameById = computed(() => ({
   department: new Map(departments.value.map(d => [d.id, d.name])),
   sla: new Map(slas.value.map(s => [s.id, s.name])),
   item: new Map(items.value.map(i => [i.id, i.name])),
   category: new Map(categories.value.map(c => [c.id, c.name])),
+  locationType: new Map(locationTypes.value.map(t => [t.id, t.name])),
 }))
 
 /**
- * Human description of what a rule matches on. The kind is part of the name —
+ * Human description of what a rule matches on. The tier is part of the name —
  * an "Item: Towels" rule and a "Category: Towels" rule must stay tellable
  * apart everywhere they are quoted, especially in the delete confirmation.
  */
 function matchLabel(rule: RoutingRule) {
-  if (rule.matchItemId) return { kind: 'Item', value: nameById.value.item.get(rule.matchItemId) ?? rule.matchItemId }
-  if (rule.matchCategoryId) return { kind: 'Category', value: nameById.value.category.get(rule.matchCategoryId) ?? rule.matchCategoryId }
-  if (rule.matchPartnerId) return { kind: 'Partner', value: `Partner ${rule.matchPartnerId}` }
-  return { kind: '—', value: '—' }
+  const tier = TIER_LABELS[routingTier(rule)] ?? '—'
+  if (rule.matchItemId) return { kind: tier, value: nameById.value.item.get(rule.matchItemId) ?? rule.matchItemId }
+  if (rule.matchCategoryId) return { kind: tier, value: nameById.value.category.get(rule.matchCategoryId) ?? rule.matchCategoryId }
+  if (rule.matchLocationTypeId) return { kind: tier, value: nameById.value.locationType.get(rule.matchLocationTypeId) ?? rule.matchLocationTypeId }
+  if (rule.matchPriority) return { kind: tier, value: priorityMeta(rule.matchPriority).label }
+  return { kind: tier, value: 'Everything unmatched above' }
 }
 
 function matchText(rule: RoutingRule) {
@@ -54,12 +70,15 @@ function matchText(rule: RoutingRule) {
 }
 
 /**
- * Active items no active rule would route: no rule matches the item itself and
- * none matches its category. These fall back to the default SLA with no
- * department — visible to everyone, targeted at no one.
+ * Active items no active rule would route: nothing matches the item itself and
+ * nothing matches its category. (A location-type, priority or catch-all rule
+ * may still pick the task up at creation time, but that depends on how it is
+ * raised — so the warning stays about the item-level guarantees.) With an
+ * active catch-all in place, nothing can fall through at all.
  */
 const unroutedItems = computed(() => {
   const active = rules.value.filter(rule => rule.isActive)
+  if (active.some(rule => routingTier(rule) === 'CATCH_ALL')) return []
   const itemIds = new Set(active.map(rule => rule.matchItemId).filter(Boolean))
   const categoryIds = new Set(active.map(rule => rule.matchCategoryId).filter(Boolean))
   return items.value.filter(item =>
@@ -87,13 +106,14 @@ const matchOptions = computed(() => {
       return options
     }
     case 'category': return categories.value.map(c => ({ value: c.id, label: c.name }))
-    // Partner ids come from the platform area; an admin picks by the id they
-    // were given rather than browsing every registered partner.
+    case 'locationType': return locationTypes.value.filter(t => t.isActive).map(t => ({ value: t.id, label: t.name }))
+    case 'priority': return TASK_PRIORITIES.map(p => ({ value: p, label: priorityMeta(p).label }))
     default: return []
   }
 })
 
 const dialogTitle = computed(() => (editId.value ? 'Edit routing rule' : 'New routing rule'))
+const needsMatchValue = computed(() => formMatchKind.value !== 'catchall')
 
 // ── delete confirmation ───────────────────────────────────────────────────────
 
@@ -139,7 +159,9 @@ function collidingRule(): RoutingRule | undefined {
   switch (formMatchKind.value) {
     case 'item': return rules.value.find(rule => rule.matchItemId === value)
     case 'category': return rules.value.find(rule => rule.matchCategoryId === value)
-    default: return rules.value.find(rule => rule.matchPartnerId === value)
+    case 'locationType': return rules.value.find(rule => rule.matchLocationTypeId === value)
+    case 'priority': return rules.value.find(rule => rule.matchPriority === value)
+    default: return rules.value.find(rule => routingTier(rule) === 'CATCH_ALL')
   }
 }
 
@@ -147,18 +169,20 @@ async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const [loadedRules, loadedDepts, loadedSlas, loadedItems, loadedCategories] = await Promise.all([
+    const [loadedRules, loadedDepts, loadedSlas, loadedItems, loadedCategories, loadedLocationTypes] = await Promise.all([
       api.listRoutingRules(),
       api.listDepartments(),
       api.listSlas(),
       api.listCatalogItems(),
       api.listCatalogCategories(),
+      api.listLocationTypes(),
     ])
     rules.value = loadedRules
     departments.value = loadedDepts
     slas.value = loadedSlas
     items.value = loadedItems
     categories.value = loadedCategories
+    locationTypes.value = loadedLocationTypes
   }
   catch (e) {
     errorMessage.value = (e as Error).message
@@ -170,7 +194,6 @@ async function load() {
 
 function openCreate() {
   editId.value = undefined
-  formPriority.value = 50
   formMatchKind.value = 'category'
   formMatchValue.value = ''
   formDepartmentId.value = departments.value[0]?.id ?? ''
@@ -183,9 +206,14 @@ function openCreate() {
 
 function openEdit(rule: RoutingRule) {
   editId.value = rule.id
-  formPriority.value = rule.priority
-  formMatchKind.value = rule.matchItemId ? 'item' : rule.matchPartnerId ? 'partner' : 'category'
-  formMatchValue.value = rule.matchItemId ?? rule.matchCategoryId ?? rule.matchPartnerId ?? ''
+  formMatchKind.value = rule.matchItemId
+    ? 'item'
+    : rule.matchCategoryId
+      ? 'category'
+      : rule.matchLocationTypeId
+        ? 'locationType'
+        : rule.matchPriority ? 'priority' : 'catchall'
+  formMatchValue.value = rule.matchItemId ?? rule.matchCategoryId ?? rule.matchLocationTypeId ?? rule.matchPriority ?? ''
   formDepartmentId.value = rule.departmentId
   formSlaId.value = rule.slaId
   formRemark.value = rule.remark ?? ''
@@ -196,8 +224,8 @@ function openEdit(rule: RoutingRule) {
 
 function save() {
   if (isSaving.value) return
-  // Creating a second rule for the same matcher is usually a mistake — the one
-  // with the lower priority number silently wins. Say so before sending it.
+  // Creating a second rule for the same matcher is usually a mistake — within
+  // a tier the older rule silently wins. Say so before sending it.
   if (!editId.value) {
     const existing = collidingRule()
     if (existing) {
@@ -220,10 +248,10 @@ async function submit() {
   try {
     await api.upsertRoutingRule({
       id: editId.value,
-      priority: Number(formPriority.value),
       matchItemId: formMatchKind.value === 'item' ? formMatchValue.value : null,
       matchCategoryId: formMatchKind.value === 'category' ? formMatchValue.value : null,
-      matchPartnerId: formMatchKind.value === 'partner' ? formMatchValue.value : null,
+      matchLocationTypeId: formMatchKind.value === 'locationType' ? formMatchValue.value : null,
+      matchPriority: formMatchKind.value === 'priority' ? formMatchValue.value as TaskPriority : null,
       departmentId: formDepartmentId.value,
       slaId: formSlaId.value,
       remark: formRemark.value.trim() || null,
@@ -280,7 +308,8 @@ onMounted(load)
         <p>
           Tasks raised for
           <span class="font-semibold">{{ unroutedItems.map(item => item.name).join(', ') }}</span>
-          will land with no department, visible to everyone and owned by no one. Add a rule for the item or its category.
+          can land with no department, visible to everyone and owned by no one. Add a rule for the item or its
+          category — or a catch-all rule as the floor.
         </p>
       </AlertDescription>
     </Alert>
@@ -290,8 +319,9 @@ onMounted(load)
         <div class="flex items-start gap-3">
           <MapPinnedIcon class="mt-0.5 shrink-0 text-primary" />
           <p class="text-sm text-foreground">
-            Rules are evaluated by <span class="font-semibold">priority</span>, lowest first, and the first match wins.
-            Keep specific rules (a single catalog item) on a low number and broad fallbacks high.
+            Rules are matched <span class="font-semibold">most specific first</span>:
+            exact item, then category, then location type, then priority, then the catch-all.
+            The matcher decides the tier — there is no priority number to maintain.
             A task matching nothing gets the property's default SLA and no department, so it stays visible to everyone.
           </p>
         </div>
@@ -306,7 +336,7 @@ onMounted(load)
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead class="w-20">Priority</TableHead>
+                <TableHead class="w-32">Tier</TableHead>
                 <TableHead>Matches</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>SLA</TableHead>
@@ -316,13 +346,10 @@ onMounted(load)
             </TableHeader>
             <TableBody>
               <TableRow v-for="rule in rules" :key="rule.id" :class="rule.isActive ? '' : 'opacity-55'">
-                <TableCell class="font-semibold tabular-nums text-foreground">{{ rule.priority }}</TableCell>
                 <TableCell>
-                  <div class="flex items-center gap-2">
-                    <Badge variant="outline" class="text-[10px]">{{ matchLabel(rule).kind }}</Badge>
-                    <span class="text-foreground">{{ matchLabel(rule).value }}</span>
-                  </div>
+                  <Badge variant="outline" class="text-[10px]">{{ matchLabel(rule).kind }}</Badge>
                 </TableCell>
+                <TableCell class="text-foreground">{{ matchLabel(rule).value }}</TableCell>
                 <TableCell class="text-foreground">{{ nameById.department.get(rule.departmentId) ?? '—' }}</TableCell>
                 <TableCell class="text-foreground">{{ nameById.sla.get(rule.slaId) ?? '—' }}</TableCell>
                 <TableCell class="max-w-56 truncate text-muted-foreground">{{ rule.remark ?? '—' }}</TableCell>
@@ -370,35 +397,26 @@ onMounted(load)
         </Alert>
 
         <div class="space-y-5 py-2">
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div class="space-y-2">
-              <Label for="rule-priority">Priority</Label>
-              <Input id="rule-priority" v-model.number="formPriority" type="number" min="1" max="999" />
-              <p class="text-xs text-muted-foreground">Lower runs first.</p>
-            </div>
-            <div class="space-y-2">
-              <Label>Match on</Label>
-              <Select v-model="formMatchKind" @update:model-value="formMatchValue = ''">
-                <SelectTrigger class="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="item">Catalog item</SelectItem>
-                  <SelectItem value="category">Category</SelectItem>
-                  <SelectItem value="partner">Source partner</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div class="space-y-2">
+            <Label>Match on</Label>
+            <Select v-model="formMatchKind" @update:model-value="formMatchValue = ''">
+              <SelectTrigger class="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="item">Catalog item (most specific)</SelectItem>
+                <SelectItem value="category">Category</SelectItem>
+                <SelectItem value="locationType">Location type</SelectItem>
+                <SelectItem value="priority">Priority</SelectItem>
+                <SelectItem value="catchall">Catch-all (everything unmatched)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-xs text-muted-foreground">The matcher is the rule's specificity tier — more specific tiers win.</p>
           </div>
 
-          <div class="space-y-2">
-            <Label>{{ formMatchKind === 'partner' ? 'Partner ID' : 'Value' }}</Label>
-            <Input
-              v-if="formMatchKind === 'partner'"
-              v-model="formMatchValue"
-              placeholder="e.g. 1"
-            />
-            <Select v-else v-model="formMatchValue">
+          <div v-if="needsMatchValue" class="space-y-2">
+            <Label>Value</Label>
+            <Select v-model="formMatchValue">
               <SelectTrigger class="w-full">
                 <SelectValue placeholder="Select a value" />
               </SelectTrigger>
@@ -451,7 +469,7 @@ onMounted(load)
 
         <DialogFooter>
           <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
-          <Button :disabled="isSaving || !formMatchValue || !formDepartmentId || !formSlaId" @click="save">
+          <Button :disabled="isSaving || (needsMatchValue && !formMatchValue) || !formDepartmentId || !formSlaId" @click="save">
             {{ isSaving ? 'Saving…' : 'Save rule' }}
           </Button>
         </DialogFooter>
@@ -484,8 +502,8 @@ onMounted(load)
         <AlertDialogHeader>
           <AlertDialogTitle>A rule already matches this</AlertDialogTitle>
           <AlertDialogDescription>
-            A rule already matches on “{{ duplicateLabel }}”. Creating another will not replace it — the rule with the
-            lower priority number wins, and the loser sits in the list doing nothing. Continue?
+            A rule already matches on “{{ duplicateLabel }}”. Creating another will not replace it — within a tier
+            the older rule wins, and the loser sits in the list doing nothing. Continue?
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

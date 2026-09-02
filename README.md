@@ -44,18 +44,22 @@ seeded account and asserts the two agree, so a seed that makes them disagree
 fails there rather than quietly hiding a working account.
 
 ```bash
-pnpm test         # 112 tests: mock contract, config findings, console admission
+pnpm test         # 163 tests: mock contract, config findings, staff flows, overview compliance, console admission
 pnpm typecheck    # vue-tsc across app + templates, including the shared layer
 pnpm build        # static SPA into .output/public
 ```
 
-`pnpm test` runs 112 tests over this repo's own code, so a standalone clone
+`pnpm test` runs 163 tests over this repo's own code, so a standalone clone
 verifies itself: the mock API contract and the presentation helpers (shared in
 shape with the staff workspace but tested here against this copy),
 [`tests/admin-config.spec.ts`](tests/admin-config.spec.ts) (31 — the
 configuration-surface findings ported from the
 [`sentec-tasks-admin`](https://github.com/SentinelTech-com/sentec-tasks-admin)
-repo, each pinned so it cannot quietly regress), plus
+repo, each pinned so it cannot quietly regress),
+[`tests/overview-compliance.spec.ts`](tests/overview-compliance.spec.ts) (the
+platform-overview rules: frozen-SUBMITTED lifecycle guards, schedule-aware SLA
+deadlines counted from activation, specificity-tiered routing, the source-app
+registry, direct task editing), plus
 [`tests/console-access.spec.ts`](tests/console-access.spec.ts) (11). That last
 one is specific to this app — the admission rule decides who reaches an admin
 console, so it is asserted against the mock's real demo accounts rather than by
@@ -65,8 +69,7 @@ payload for exactly that reason: no Nuxt runtime needed to test them.
 
 ## Kept in step by hand
 
-Eight files are **duplicated** between this app and the staff workspace, and
-nothing enforces that they stay identical:
+Eight files are **duplicated** between this app and the staff workspace:
 
 | File                             | Why both apps need it              |
 | -------------------------------- | ---------------------------------- |
@@ -79,15 +82,17 @@ nothing enforces that they stay identical:
 | `app/utils/task-ui.ts`           | Same status and SLA presentation   |
 | `app/utils/select-empty.ts`      | Reka UI's reserved-empty-value fix |
 
-Plus `tests/mock-api.spec.ts`, `tests/admin-config.spec.ts` and
+Plus `tests/mock-api.spec.ts`, `tests/admin-config.spec.ts`,
+`tests/staff-flows.spec.ts`, `tests/overview-compliance.spec.ts` and
 `tests/task-ui.spec.ts`, duplicated for a reason: each repo tests the copy it
-ships. `app/composables/useConsoleAccess.ts`
-is **not** in that set — it is this app's own rule and has no counterpart.
+ships. `app/composables/useConsoleAccess.ts` is **not** in that set — it is
+this app's own rule and has no counterpart.
 
 This is the deliberate trade for two repositories that build independently — the
 same one the Butler consoles make with their own `clientFakeApi.ts`. A change to
-any file above belongs in both apps in the same review. `diff -r` between the two
-`app/composables` and `app/utils` directories is the cheap check.
+any file above belongs in both apps in the same review, and
+`pnpm check:shared` fails when the copies differ (it skips when the sibling
+repo is not checked out, so a standalone clone still builds).
 
 ## Screens
 

@@ -15,6 +15,7 @@ export interface StatusMeta {
 export const TASK_STATUS_META: Record<TaskStatus, StatusMeta> = {
   NEW: { label: 'New', dot: 'bg-muted-foreground/40', badge: 'bg-muted text-muted-foreground' },
   IN_PROGRESS: { label: 'In Progress', dot: 'bg-primary', badge: 'bg-primary/10 text-primary' },
+  SUBMITTED: { label: 'Submitted', dot: 'bg-primary/70', badge: 'bg-primary/15 text-primary' },
   PENDING: { label: 'On Hold', dot: 'bg-primary/50', badge: 'bg-secondary text-secondary-foreground' },
   FINISHED: { label: 'Finished', dot: 'bg-success/70', badge: 'bg-success/10 text-success' },
   VERIFIED: { label: 'Verified', dot: 'bg-success', badge: 'bg-success/15 text-success' },
@@ -45,11 +46,21 @@ export function priorityMeta(priority: TaskPriority): PriorityMeta {
   return TASK_PRIORITY_META[priority] ?? TASK_PRIORITY_META.NORMAL
 }
 
-/** Statuses that still need someone's attention. */
-export const OPEN_STATUSES: TaskStatus[] = ['NEW', 'IN_PROGRESS', 'PENDING']
+/**
+ * Statuses that still need someone's attention. SUBMITTED is open — the
+ * attention has just moved from the assignee to the reviewer.
+ */
+export const OPEN_STATUSES: TaskStatus[] = ['NEW', 'IN_PROGRESS', 'SUBMITTED', 'PENDING']
 
 export function isOpen(status: TaskStatus) {
   return OPEN_STATUSES.includes(status)
+}
+
+/** Statuses a task can be claimed in: real work, not yet under review. */
+export const CLAIMABLE_STATUSES: TaskStatus[] = ['NEW', 'IN_PROGRESS']
+
+export function isClaimable(status: TaskStatus) {
+  return CLAIMABLE_STATUSES.includes(status)
 }
 
 /**

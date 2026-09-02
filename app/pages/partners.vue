@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   CheckIcon,
   CopyIcon,
@@ -10,11 +10,16 @@ import {
   TriangleAlertIcon,
 } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
+import type { SourceApp } from '~/utils/clientFakeApi'
 import { relativeTime } from '~/utils/task-ui'
+import { SELECT_EMPTY, fromSelectValue } from '~/utils/select-empty'
 
 const api = useTasksApi()
 
 const partners = ref<Awaited<ReturnType<typeof api.listPartners>>>([])
+/** The platform-wide source-app registry: what a partner dispatches AS. */
+const sourceApps = ref<SourceApp[]>([])
+const sourceAppByCode = computed(() => new Map(sourceApps.value.map(app => [app.code, app])))
 const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
@@ -23,6 +28,8 @@ const formError = ref('')
 const createOpen = ref(false)
 const formName = ref('')
 const formKind = ref('')
+/** SELECT_EMPTY = not mapped; tasks from this partner then badge by name only. */
+const formSourceApp = ref(SELECT_EMPTY)
 
 /**
  * The one and only time a secret is visible.
@@ -39,7 +46,9 @@ async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    partners.value = await api.listPartners()
+    const [loadedPartners, loadedApps] = await Promise.all([api.listPartners(), api.listSourceApps()])
+    partners.value = loadedPartners
+    sourceApps.value = loadedApps
   }
   catch (e) {
     errorMessage.value = (e as Error).message
@@ -52,6 +61,7 @@ async function load() {
 function openCreate() {
   formName.value = ''
   formKind.value = ''
+  formSourceApp.value = SELECT_EMPTY
   formError.value = ''
   createOpen.value = true
 }
@@ -61,7 +71,11 @@ async function save() {
   isSaving.value = true
   formError.value = ''
   try {
-    const created = await api.createPartner({ name: formName.value.trim(), kind: formKind.value.trim() || undefined })
+    const created = await api.createPartner({
+      name: formName.value.trim(),
+      kind: formKind.value.trim() || undefined,
+      sourceAppCode: fromSelectValue(formSourceApp.value),
+    })
     createOpen.value = false
     if (created.secretPreview) {
       revealed.value = { name: created.name, secret: created.secretPreview, rotated: false }
@@ -169,6 +183,7 @@ async function copySecret() {
             <TableHeader>
               <TableRow>
                 <TableHead>Partner</TableHead>
+                <TableHead>Source app</TableHead>
                 <TableHead>Tasks dispatched</TableHead>
                 <TableHead>Last dispatch</TableHead>
                 <TableHead>Event delivery</TableHead>
@@ -181,6 +196,21 @@ async function copySecret() {
                 <TableCell>
                   <p class="font-medium text-foreground">{{ partner.name }}</p>
                   <p class="text-xs text-muted-foreground">{{ partner.kind }}</p>
+                </TableCell>
+                <TableCell>
+                  <!-- The registry colour is data from the platform, not a theme
+                       token — it must match the badge every client renders. -->
+                  <span
+                    v-if="partner.sourceAppCode && sourceAppByCode.get(partner.sourceAppCode)"
+                    class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium text-foreground"
+                  >
+                    <span
+                      class="h-2 w-2 rounded-full"
+                      :style="{ backgroundColor: sourceAppByCode.get(partner.sourceAppCode)!.badgeColor }"
+                    />
+                    {{ sourceAppByCode.get(partner.sourceAppCode)!.name }}
+                  </span>
+                  <span v-else class="text-xs text-muted-foreground">Not mapped</span>
                 </TableCell>
                 <TableCell class="tabular-nums text-foreground">{{ partner.taskCount }}</TableCell>
                 <TableCell class="whitespace-nowrap text-muted-foreground">
@@ -211,7 +241,7 @@ async function copySecret() {
                 </TableCell>
               </TableRow>
               <TableRow v-if="!isLoading && partners.length === 0">
-                <TableCell colspan="6" class="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colspan="7" class="py-10 text-center text-sm text-muted-foreground">
                   No partners registered. Tasks still works standalone — partners are only needed to accept work from another app.
                 </TableCell>
               </TableRow>
@@ -241,6 +271,23 @@ async function copySecret() {
           <div class="space-y-2">
             <Label for="partner-kind">What it is</Label>
             <Input id="partner-kind" v-model="formKind" placeholder="e.g. Property management" />
+          </div>
+          <div class="space-y-2">
+            <Label>Source app</Label>
+            <Select v-model="formSourceApp">
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="Not mapped" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem :value="SELECT_EMPTY">Not mapped</SelectItem>
+                <SelectItem v-for="app in sourceApps.filter(a => a.isActive)" :key="app.code" :value="app.code">
+                  {{ app.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-xs text-muted-foreground">
+              The registry entry this partner dispatches as — it decides the badge on every task it raises.
+            </p>
           </div>
           <Alert>
             <TriangleAlertIcon />

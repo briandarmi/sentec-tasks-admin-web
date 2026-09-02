@@ -21,8 +21,8 @@ const formResolution = ref(45)
 const formDefault = ref(false)
 
 const dialogTitle = computed(() => (editId.value ? 'Edit SLA' : 'New SLA'))
-/** Total wall-clock a task gets before it is late, shown while editing. */
-const totalWindow = computed(() => formatMinutes(Number(formResponse.value || 0) + Number(formResolution.value || 0)))
+/** Both budgets count from activation, so resolution IS the total window. */
+const totalWindow = computed(() => formatMinutes(Number(formResolution.value || 0)))
 
 /**
  * Whole minutes only, enforced by disabling Save rather than rounding: "15.5"
@@ -34,7 +34,9 @@ function isValidMinutes(value: unknown) {
 }
 
 const minutesInvalid = computed(() => !isValidMinutes(formResponse.value) || !isValidMinutes(formResolution.value))
-const canSave = computed(() => !isSaving.value && Boolean(formName.value.trim()) && !minutesInvalid.value)
+/** Resolution can't come before response when both run from activation. */
+const orderingInvalid = computed(() => !minutesInvalid.value && Number(formResolution.value) < Number(formResponse.value))
+const canSave = computed(() => !isSaving.value && Boolean(formName.value.trim()) && !minutesInvalid.value && !orderingInvalid.value)
 
 // Replacing the property's default re-targets every task no rule routes, so it
 // is confirmed by name rather than flipped by a switch alone.
@@ -140,8 +142,9 @@ onMounted(load)
         <div class="flex items-start gap-3">
           <TimerIcon class="mt-0.5 shrink-0 text-primary" />
           <p class="text-sm text-foreground">
-            <span class="font-semibold">Response</span> is the clock until someone starts the task.
-            <span class="font-semibold">Resolution</span> runs from there until it is finished.
+            <span class="font-semibold">Response</span> is the budget until someone starts the task;
+            <span class="font-semibold">resolution</span> is the budget until the work is submitted.
+            Both count from activation, and both tick only while the owning department is open.
             A task with no matching routing rule falls back to the property default.
           </p>
         </div>
@@ -222,8 +225,11 @@ onMounted(load)
           <p v-if="minutesInvalid" role="alert" class="text-xs font-medium text-destructive">
             Both targets must be whole minutes, at least 1.
           </p>
+          <p v-else-if="orderingInvalid" role="alert" class="text-xs font-medium text-destructive">
+            Resolution cannot be shorter than response — both count from activation.
+          </p>
           <p v-else class="text-xs text-muted-foreground">
-            A task on this SLA is late after <span class="font-semibold text-foreground">{{ totalWindow }}</span> in total.
+            A task on this SLA is late after <span class="font-semibold text-foreground">{{ totalWindow }}</span> of open hours.
           </p>
 
           <div class="flex items-center justify-between rounded-lg border px-4 py-3">
