@@ -1,4 +1,4 @@
-import type { SlaStatus, TaskStatus } from '~/utils/clientFakeApi'
+import type { SlaStatus, TaskPriority, TaskStatus } from '~/utils/clientFakeApi'
 
 // Shared presentation metadata for tasks. Every colour is a semantic design
 // token from tailwind.css — no hardcoded hex — so light and dark both resolve
@@ -23,6 +23,26 @@ export const TASK_STATUS_META: Record<TaskStatus, StatusMeta> = {
 
 export function statusMeta(status: TaskStatus): StatusMeta {
   return TASK_STATUS_META[status] ?? TASK_STATUS_META.NEW
+}
+
+export interface PriorityMeta {
+  label: string
+  /** Soft badge surface + matching text colour. */
+  badge: string
+}
+
+/** Ordered least → most urgent, which is also the order pickers offer them in. */
+export const TASK_PRIORITIES: TaskPriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT']
+
+export const TASK_PRIORITY_META: Record<TaskPriority, PriorityMeta> = {
+  LOW: { label: 'Low', badge: 'bg-muted text-muted-foreground' },
+  NORMAL: { label: 'Normal', badge: 'bg-secondary text-secondary-foreground' },
+  HIGH: { label: 'High', badge: 'bg-primary/10 text-primary' },
+  URGENT: { label: 'Urgent', badge: 'bg-destructive/10 text-destructive' },
+}
+
+export function priorityMeta(priority: TaskPriority): PriorityMeta {
+  return TASK_PRIORITY_META[priority] ?? TASK_PRIORITY_META.NORMAL
 }
 
 /** Statuses that still need someone's attention. */

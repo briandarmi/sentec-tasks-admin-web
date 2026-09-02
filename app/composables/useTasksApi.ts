@@ -6,15 +6,23 @@ import type {
   CatalogItem,
   Department,
   GroupGrant,
+  LocationType,
+  OperatingException,
+  OperatingSchedule,
+  OperatingWindow,
   Partner,
+  PropertyLocation,
   RoutingRule,
   Sla,
   StaffProfile,
   TaskDetail,
   TaskListItem,
+  TaskPriority,
+  Team,
   Tenant,
   TenantGroup,
   TenantRole,
+  TerminologyKey,
 } from '~/utils/clientFakeApi'
 
 /**
@@ -137,16 +145,102 @@ export function useTasksApi() {
     async upsertBoardColumn(payload: { id?: string, name: string, description?: string | null, status: string, columnSort?: number, isActive?: boolean }) {
       return (await session.request<SingleResponse<unknown>>('/v1/board/columns/upsert', { method: 'POST', body: payload })).data
     },
+    /**
+     * Soft-remove a column. A 200 does not mean it happened: a column that
+     * still holds open work is skipped, and `warning` says so.
+     */
+    async removeBoardColumn(id: string) {
+      return (await session.request<SingleResponse<{ removed: boolean, warning: string | null }>>('/v1/board/columns/remove', { method: 'POST', body: { id } })).data
+    },
 
     // ── catalog ───────────────────────────────────────────────────────────────
     async listCatalogCategories() {
       return (await session.request<ListResponse<CatalogCategory>>('/v1/catalog/categories')).data
     },
+    async upsertCatalogCategory(payload: { id?: string, name: string, code: string, icon?: string | null, sort: number, isActive?: boolean }) {
+      return (await session.request<SingleResponse<CatalogCategory>>('/v1/catalog/categories/upsert', { method: 'POST', body: payload })).data
+    },
     async listCatalogItems() {
       return (await session.request<ListResponse<CatalogItem>>('/v1/catalog/items')).data
     },
-    async upsertCatalogItem(payload: { id?: string, categoryId: string, name: string, quantityEnabled: boolean, isActive?: boolean }) {
+    /**
+     * FULL REPLACE: every field is written from this payload. A caller that
+     * does not edit a field (the admin screen has no control for
+     * `defaultDurationMinutes`) must echo the stored value back, or it is
+     * cleared.
+     */
+    async upsertCatalogItem(payload: {
+      id?: string
+      categoryId: string
+      name: string
+      description?: string | null
+      quantityEnabled: boolean
+      defaultPriority: TaskPriority
+      requiresLocation: boolean
+      defaultChecklist: string[]
+      defaultDurationMinutes: number | null
+      minProofPhotos: number
+      requiresCompletionNote: boolean
+      isActive?: boolean
+    }) {
       return (await session.request<SingleResponse<CatalogItem>>('/v1/catalog/items/upsert', { method: 'POST', body: payload })).data
+    },
+
+    // ── locations ─────────────────────────────────────────────────────────────
+    async listLocationTypes() {
+      return (await session.request<ListResponse<LocationType>>('/v1/location-types')).data
+    },
+    async upsertLocationType(payload: { id?: string, name: string, code: string, linksRequester: boolean, sort: number, isActive?: boolean }) {
+      return (await session.request<SingleResponse<LocationType>>('/v1/location-types/upsert', { method: 'POST', body: payload })).data
+    },
+    async listLocations() {
+      return (await session.request<ListResponse<PropertyLocation>>('/v1/locations')).data
+    },
+    async upsertLocation(payload: { id?: string, locationTypeId: string, name: string, code: string, isActive?: boolean }) {
+      return (await session.request<SingleResponse<PropertyLocation>>('/v1/locations/upsert', { method: 'POST', body: payload })).data
+    },
+
+    // ── teams ─────────────────────────────────────────────────────────────────
+    async listTeams() {
+      return (await session.request<ListResponse<Team & { memberCount: number }>>('/v1/teams')).data
+    },
+    async upsertTeam(payload: { id?: string, name: string, description?: string | null, departmentId?: string | null, isActive?: boolean }) {
+      return (await session.request<SingleResponse<Team>>('/v1/teams/upsert', { method: 'POST', body: payload })).data
+    },
+    /** Member user ids for one team. */
+    async listTeamMembers(teamId: string) {
+      return (await session.request<ListResponse<string>>(`/v1/teams/${teamId}/members`)).data
+    },
+    /** 409 when the person is already on the team — a double-click is not two adds. */
+    async addTeamMember(teamId: string, userId: string) {
+      return (await session.request<SingleResponse<unknown>>(`/v1/teams/${teamId}/members/add`, { method: 'POST', body: { userId } })).data
+    },
+    async removeTeamMember(teamId: string, userId: string) {
+      return (await session.request<SingleResponse<unknown>>(`/v1/teams/${teamId}/members/remove`, { method: 'POST', body: { userId } })).data
+    },
+
+    // ── operating schedules ───────────────────────────────────────────────────
+    async listOperatingSchedules() {
+      return (await session.request<ListResponse<OperatingSchedule>>('/v1/operating-schedules')).data
+    },
+    /** FULL REPLACE of the windows/exceptions set on every save. */
+    async upsertOperatingSchedule(payload: {
+      id?: string
+      name: string
+      isDefault: boolean
+      departmentId?: string | null
+      windows: OperatingWindow[]
+      exceptions: OperatingException[]
+    }) {
+      return (await session.request<SingleResponse<OperatingSchedule>>('/v1/operating-schedules/upsert', { method: 'POST', body: payload })).data
+    },
+
+    // ── terminology ───────────────────────────────────────────────────────────
+    async getTerminology() {
+      return (await session.request<SingleResponse<Record<TerminologyKey, string>>>('/v1/terminology')).data
+    },
+    async setTerminology(key: TerminologyKey, value: string) {
+      return (await session.request<SingleResponse<Record<TerminologyKey, string>>>('/v1/terminology', { method: 'PATCH', body: { key, value } })).data
     },
 
     // ── property configuration ────────────────────────────────────────────────
@@ -177,6 +271,9 @@ export function useTasksApi() {
       isActive?: boolean
     }) {
       return (await session.request<SingleResponse<RoutingRule>>('/v1/routing-rules/upsert', { method: 'POST', body: payload })).data
+    },
+    async deleteRoutingRule(id: string) {
+      return (await session.request<SingleResponse<unknown>>('/v1/routing-rules/delete', { method: 'POST', body: { id } })).data
     },
 
     // ── staff directory ───────────────────────────────────────────────────────

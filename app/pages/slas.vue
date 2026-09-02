@@ -24,6 +24,37 @@ const dialogTitle = computed(() => (editId.value ? 'Edit SLA' : 'New SLA'))
 /** Total wall-clock a task gets before it is late, shown while editing. */
 const totalWindow = computed(() => formatMinutes(Number(formResponse.value || 0) + Number(formResolution.value || 0)))
 
+/**
+ * Whole minutes only, enforced by disabling Save rather than rounding: "15.5"
+ * quietly becoming a real SLA target is the same class of risk as a
+ * seconds/minutes conversion bug. The API refuses fractions too.
+ */
+function isValidMinutes(value: unknown) {
+  return Number.isInteger(Number(value)) && Number(value) >= 1
+}
+
+const minutesInvalid = computed(() => !isValidMinutes(formResponse.value) || !isValidMinutes(formResolution.value))
+const canSave = computed(() => !isSaving.value && Boolean(formName.value.trim()) && !minutesInvalid.value)
+
+// Replacing the property's default re-targets every task no rule routes, so it
+// is confirmed by name rather than flipped by a switch alone.
+const defaultDialogOpen = ref(false)
+
+function requestSave() {
+  if (isSaving.value || !canSave.value) return
+  const currentDefault = slas.value.find(s => s.isDefault)
+  if (formDefault.value && currentDefault && currentDefault.id !== editId.value) {
+    defaultDialogOpen.value = true
+    return
+  }
+  void save()
+}
+
+function confirmDefault() {
+  defaultDialogOpen.value = false
+  void save()
+}
+
 async function load() {
   isLoading.value = true
   errorMessage.value = ''
@@ -180,15 +211,18 @@ onMounted(load)
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="space-y-2">
               <Label for="sla-response">Response (minutes)</Label>
-              <Input id="sla-response" v-model.number="formResponse" type="number" min="1" />
+              <Input id="sla-response" v-model.number="formResponse" type="number" min="1" step="1" />
             </div>
             <div class="space-y-2">
               <Label for="sla-resolution">Resolution (minutes)</Label>
-              <Input id="sla-resolution" v-model.number="formResolution" type="number" min="1" />
+              <Input id="sla-resolution" v-model.number="formResolution" type="number" min="1" step="1" />
             </div>
           </div>
 
-          <p class="text-xs text-muted-foreground">
+          <p v-if="minutesInvalid" role="alert" class="text-xs font-medium text-destructive">
+            Both targets must be whole minutes, at least 1.
+          </p>
+          <p v-else class="text-xs text-muted-foreground">
             A task on this SLA is late after <span class="font-semibold text-foreground">{{ totalWindow }}</span> in total.
           </p>
 
@@ -205,11 +239,27 @@ onMounted(load)
 
         <DialogFooter>
           <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
-          <Button :disabled="isSaving || !formName.trim()" @click="save">
+          <Button :disabled="!canSave" @click="requestSave">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog v-model:open="defaultDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Change the default SLA?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Making “{{ formName }}” the default re-targets every task that no routing rule sends to a specific SLA.
+            Already-routed tasks are not affected.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction @click="confirmDefault">Set as default</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

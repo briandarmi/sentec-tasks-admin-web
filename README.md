@@ -1,9 +1,10 @@
 # Sentec Tasks — Admin Web
 
 The **admin and operator console** for [Sentec Tasks](../docs/sentec-tasks.md):
-property configuration (departments, SLAs, routing, board columns, catalog,
-staff, audit), the Sentinel Tech platform screens (properties, groups and
-access, integration partners), and the group report.
+property configuration (departments, staff, teams, locations, SLAs, routing,
+operating schedules, terminology, board columns, catalog and its categories,
+audit), the Sentinel Tech platform screens (properties, groups and access,
+integration partners), and the group report.
 
 The staff workspace — the queue people actually work from — is a separate app,
 [`../sentec-tasks-staff-web`](../sentec-tasks-staff-web). This repository is
@@ -43,14 +44,18 @@ seeded account and asserts the two agree, so a seed that makes them disagree
 fails there rather than quietly hiding a working account.
 
 ```bash
-pnpm test         # 11 tests: who this console admits, and which logins it offers
+pnpm test         # 112 tests: mock contract, config findings, console admission
 pnpm typecheck    # vue-tsc across app + templates, including the shared layer
 pnpm build        # static SPA into .output/public
 ```
 
-`pnpm test` runs 81 tests over this repo's own code, so a standalone clone
-verifies itself: the mock API contract and the presentation helpers (70, shared
-in shape with the staff workspace but tested here against this copy), plus
+`pnpm test` runs 112 tests over this repo's own code, so a standalone clone
+verifies itself: the mock API contract and the presentation helpers (shared in
+shape with the staff workspace but tested here against this copy),
+[`tests/admin-config.spec.ts`](tests/admin-config.spec.ts) (31 — the
+configuration-surface findings ported from the
+[`sentec-tasks-admin`](https://github.com/SentinelTech-com/sentec-tasks-admin)
+repo, each pinned so it cannot quietly regress), plus
 [`tests/console-access.spec.ts`](tests/console-access.spec.ts) (11). That last
 one is specific to this app — the admission rule decides who reaches an admin
 console, so it is asserted against the mock's real demo accounts rather than by
@@ -74,8 +79,9 @@ nothing enforces that they stay identical:
 | `app/utils/task-ui.ts`           | Same status and SLA presentation   |
 | `app/utils/select-empty.ts`      | Reka UI's reserved-empty-value fix |
 
-Plus `tests/mock-api.spec.ts` and `tests/task-ui.spec.ts`, duplicated for a
-reason: each repo tests the copy it ships. `app/composables/useConsoleAccess.ts`
+Plus `tests/mock-api.spec.ts`, `tests/admin-config.spec.ts` and
+`tests/task-ui.spec.ts`, duplicated for a reason: each repo tests the copy it
+ships. `app/composables/useConsoleAccess.ts`
 is **not** in that set — it is this app's own rule and has no counterpart.
 
 This is the deliberate trade for two repositories that build independently — the
@@ -90,16 +96,21 @@ only repeat what the hostname already says. The admin/operator boundary lives in
 [`app/middleware/auth.global.ts`](app/middleware/auth.global.ts) and in the
 sidebar's per-group `visible` flag instead of in the URL.
 
-| Route            | Screen               | Needs      |
-| ---------------- | -------------------- | ---------- |
-| `/`              | Overview             | `admin`    |
-| `/departments`   | Departments          | `admin`    |
-| `/slas`          | SLAs                 | `admin`    |
-| `/routing`       | Routing Rules        | `admin`    |
-| `/board`         | Board Columns        | `admin`    |
-| `/catalog`       | Catalog              | `admin`    |
-| `/staff`         | Staff                | `admin`    |
-| `/audit`         | Audit Trail          | `admin`    |
+| Route                  | Screen               | Needs      |
+| ---------------------- | -------------------- | ---------- |
+| `/`                    | Overview             | `admin`    |
+| `/board`               | Board Columns        | `admin`    |
+| `/catalog`             | Catalog              | `admin`    |
+| `/categories`          | Categories           | `admin`    |
+| `/departments`         | Departments          | `admin`    |
+| `/staff`               | Staff                | `admin`    |
+| `/teams`               | Teams                | `admin`    |
+| `/locations`           | Locations & types    | `admin`    |
+| `/routing`             | Routing Rules        | `admin`    |
+| `/slas`                | SLAs                 | `admin`    |
+| `/operating-schedules` | Operating Schedules  | `admin`    |
+| `/terminology`         | Terminology          | `admin`    |
+| `/audit`               | Audit Trail          | `admin`    |
 | `/platform`      | Operator Home        | `operator` |
 | `/properties`    | Properties           | `operator` |
 | `/groups`        | Groups & Access      | `operator` |
@@ -133,17 +144,15 @@ A **group grant** gives read *and write* across every property in a brand. Only
 an operator can grant or revoke one — a property admin cannot, including to
 themselves — and every change lands in the audit trail.
 
-**This console grants the `admin` role and nothing else.** `/staff` has no role
-picker: adding someone makes them a property admin, and editing an existing
-member leaves the role they hold untouched, so an edit cannot quietly promote a
-room attendant. The directory still lists staff and team leaders — hiding people
-the API returns would serve nobody — and their department, position and active
-flag remain editable.
-
-The consequence, stated plainly: **there is no longer any surface in Sentec Tasks
-that onboards a staff member or team leader.** The mock seeds them, and the API
-still accepts either role, but no screen sends it. That is a deliberate choice,
-not an oversight — it needs a home before the product can onboard a property.
+**Admin is granted by promotion, never at creation.** `/staff` onboards people
+as `staff` or `leader` only — the API refuses a create that says `admin`. An
+account that should be an admin is created first and promoted in a second,
+separate request; the add form can queue that as an immediate follow-up step,
+and it says so before the click because the second request can fail alone (in
+which case the account still exists, and the screen says that too rather than
+pretending nothing happened). Editing an existing member may change their role,
+and deactivating someone is confirmed by name; reactivating is not, since it
+only restores access already granted once.
 
 The gates in [`useCaps()`](app/composables/useCaps.ts) are
 cosmetic: the API enforces the same rules and is the only thing standing between

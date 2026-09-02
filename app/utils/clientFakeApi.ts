@@ -112,12 +112,24 @@ export interface Sla {
   updateDate: string
 }
 
-/** Native catalog — Tasks owns this, so it works with no partner connected. */
+/** Default urgency a catalog item stamps on the tasks raised from it. */
+export type TaskPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'URGENT'
+
+/**
+ * Native catalog — Tasks owns this, so it works with no partner connected.
+ * Categories are per tenant: each property names and orders its own, so one
+ * property's rename can never leak into another partition.
+ */
 export interface CatalogCategory {
   id: Id
+  tenantId: Id
   name: string
-  icon: string
+  code: string
+  icon: string | null
+  sort: number
+  isActive: boolean
   createDate: string
+  updateDate: string
 }
 
 export interface CatalogItem {
@@ -125,11 +137,128 @@ export interface CatalogItem {
   tenantId: Id
   categoryId: Id
   name: string
+  description: string | null
   /** Whether the item takes a quantity (e.g. "2 extra towels"). */
   quantityEnabled: boolean
+  defaultPriority: TaskPriority
+  /** Whether raising this item requires saying where the work is. */
+  requiresLocation: boolean
+  /** Steps seeded onto every task raised from this item. */
+  defaultChecklist: string[]
+  /**
+   * Expected minutes of work, written by other producers (task templates, the
+   * API). The admin screen carries no control for it, so its upsert must echo
+   * the stored value back — the upsert is a full replace, and omitting the
+   * field clears it.
+   */
+  defaultDurationMinutes: number | null
+  /** Proof gate: photos required before the task can be finished. 0 = no gate. */
+  minProofPhotos: number
+  /** Proof gate: whether finishing requires a written completion note. */
+  requiresCompletionNote: boolean
   isActive: boolean
   createDate: string
   updateDate: string
+}
+
+// ── locations ─────────────────────────────────────────────────────────────────
+
+/** A kind of place work happens in: guest room, floor, public area, … */
+export interface LocationType {
+  id: Id
+  tenantId: Id
+  name: string
+  code: string
+  /** Whether tasks at locations of this type carry a requester (e.g. rooms do). */
+  linksRequester: boolean
+  sort: number
+  isActive: boolean
+  createDate: string
+  updateDate: string
+}
+
+/**
+ * A concrete place at the property. `parentId` is reserved for a future
+ * building/floor hierarchy and is not used yet.
+ */
+export interface PropertyLocation {
+  id: Id
+  tenantId: Id
+  locationTypeId: Id
+  name: string
+  code: string
+  parentId: Id | null
+  isActive: boolean
+  createDate: string
+  updateDate: string
+}
+
+// ── teams ─────────────────────────────────────────────────────────────────────
+
+/** A working group inside (or across) a department, e.g. a shift crew. */
+export interface Team {
+  id: Id
+  tenantId: Id
+  name: string
+  description: string | null
+  departmentId: Id | null
+  isActive: boolean
+  createDate: string
+  updateDate: string
+}
+
+// ── operating schedules ───────────────────────────────────────────────────────
+
+/**
+ * One weekly opening window. Membership in `windows` IS the open flag: a
+ * weekday with no window at all is fully closed — there is no zero-width or
+ * explicit-closed representation, and `closesMinutes` must exceed
+ * `opensMinutes` (1440 means open until midnight).
+ */
+export interface OperatingWindow {
+  /** 0 = Sunday … 6 = Saturday. */
+  weekday: number
+  /** Minutes since local midnight. */
+  opensMinutes: number
+  /** Minutes since local midnight; 1440 = until midnight. */
+  closesMinutes: number
+}
+
+/** A dated override: fully closed, or open with its own hours. */
+export interface OperatingException {
+  /** YYYY-MM-DD. */
+  date: string
+  isClosed: boolean
+  opensMinutes: number | null
+  closesMinutes: number | null
+}
+
+export interface OperatingSchedule {
+  id: Id
+  tenantId: Id
+  name: string
+  /** At most one default per tenant — the server refuses a second with 409. */
+  isDefault: boolean
+  /** At most one schedule per department; null = tenant-wide. */
+  departmentId: Id | null
+  windows: OperatingWindow[]
+  exceptions: OperatingException[]
+  createDate: string
+  updateDate: string
+}
+
+// ── terminology ───────────────────────────────────────────────────────────────
+
+/** The four product terms a property may rename (e.g. "Requester" → "Guest"). */
+export type TerminologyKey = 'requester' | 'visit' | 'location' | 'department'
+
+export const TERMINOLOGY_KEYS: TerminologyKey[] = ['requester', 'visit', 'location', 'department']
+
+export const TERMINOLOGY_DEFAULTS: Record<TerminologyKey, string> = {
+  requester: 'Requester',
+  visit: 'Visit',
+  location: 'Location',
+  department: 'Department',
 }
 
 /**
@@ -171,6 +300,12 @@ export interface BoardColumn {
   /** The task status entering this column sets. */
   status: TaskStatus
   isActive: boolean
+  /**
+   * Soft delete. Absent means not removed (the seeds predate the field).
+   * Removal is refused — skipped with a warning, not errored — while the
+   * column still holds open work, so tasks never point at a removed column.
+   */
+  isRemoved?: boolean
   createDate: string
   updateDate: string
 }
@@ -392,28 +527,68 @@ const slas: Sla[] = [
 ]
 
 const catalogCategories: CatalogCategory[] = [
-  { id: '1', name: 'Housekeeping', icon: '🧹', createDate: SEED },
-  { id: '2', name: 'Maintenance', icon: '🔧', createDate: SEED },
-  { id: '3', name: 'Concierge', icon: '🛎️', createDate: SEED },
-  { id: '4', name: 'Food & Beverage', icon: '🍽️', createDate: SEED },
+  // Aston Simatupang (tenant 1)
+  { id: '1', tenantId: '1', name: 'Housekeeping', code: 'HK', icon: '🧹', sort: 1, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '2', tenantId: '1', name: 'Maintenance', code: 'MNT', icon: '🔧', sort: 2, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '3', tenantId: '1', name: 'Concierge', code: 'CNS', icon: '🛎️', sort: 3, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '4', tenantId: '1', name: 'Food & Beverage', code: 'FNB', icon: '🍽️', sort: 4, isActive: true, createDate: SEED, updateDate: SEED },
+  // A deactivated category, so the catalog screen's "keep it choosable only
+  // for the item that already has it" behaviour is visible in the demo.
+  { id: '10', tenantId: '1', name: 'Seasonal', code: 'SSN', icon: '🎄', sort: 5, isActive: false, createDate: SEED, updateDate: SEED },
+  // Aston Kuningan Suites (tenant 2)
+  { id: '5', tenantId: '2', name: 'Housekeeping', code: 'HK', icon: '🧹', sort: 1, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '6', tenantId: '2', name: 'Maintenance', code: 'MNT', icon: '🔧', sort: 2, isActive: true, createDate: SEED, updateDate: SEED },
+  // Favehotels Wahid Hasyim (tenant 3)
+  { id: '7', tenantId: '3', name: 'Housekeeping', code: 'HK', icon: '🧹', sort: 1, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '8', tenantId: '3', name: 'Concierge', code: 'CNS', icon: '🛎️', sort: 2, isActive: true, createDate: SEED, updateDate: SEED },
+  // Neo Kuta Legian (tenant 4)
+  { id: '9', tenantId: '4', name: 'Housekeeping', code: 'HK', icon: '🧹', sort: 1, isActive: true, createDate: SEED, updateDate: SEED },
 ]
 
+/** Item seed helper: fills the fields most items leave at their defaults. */
+function seedItem(row: Pick<CatalogItem, 'id' | 'tenantId' | 'categoryId' | 'name'> & Partial<CatalogItem>): CatalogItem {
+  return {
+    description: null,
+    quantityEnabled: false,
+    defaultPriority: 'NORMAL',
+    requiresLocation: false,
+    defaultChecklist: [],
+    defaultDurationMinutes: null,
+    minProofPhotos: 0,
+    requiresCompletionNote: false,
+    isActive: true,
+    createDate: SEED,
+    updateDate: SEED,
+    ...row,
+  }
+}
+
 const catalogItems: CatalogItem[] = [
-  { id: '1', tenantId: '1', categoryId: '1', name: 'Extra towels', quantityEnabled: true, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '2', tenantId: '1', categoryId: '1', name: 'Room cleaning', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '3', tenantId: '1', categoryId: '1', name: 'Turndown service', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '4', tenantId: '1', categoryId: '2', name: 'Air conditioner not cooling', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '5', tenantId: '1', categoryId: '2', name: 'Light bulb replacement', quantityEnabled: true, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '6', tenantId: '1', categoryId: '2', name: 'Plumbing / leak', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '7', tenantId: '1', categoryId: '3', name: 'Airport transfer', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '8', tenantId: '1', categoryId: '3', name: 'Late checkout request', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '9', tenantId: '1', categoryId: '4', name: 'In-room dining', quantityEnabled: true, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '10', tenantId: '1', categoryId: '4', name: 'Minibar restock', quantityEnabled: true, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '11', tenantId: '2', categoryId: '1', name: 'Extra towels', quantityEnabled: true, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '12', tenantId: '2', categoryId: '2', name: 'Air conditioner not cooling', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '13', tenantId: '3', categoryId: '1', name: 'Room cleaning', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '14', tenantId: '3', categoryId: '3', name: 'Luggage assistance', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '15', tenantId: '4', categoryId: '1', name: 'Room cleaning', quantityEnabled: false, isActive: true, createDate: SEED, updateDate: SEED },
+  seedItem({ id: '1', tenantId: '1', categoryId: '1', name: 'Extra towels', quantityEnabled: true, requiresLocation: true, defaultDurationMinutes: 10 }),
+  seedItem({
+    id: '2', tenantId: '1', categoryId: '1', name: 'Room cleaning', requiresLocation: true, defaultDurationMinutes: 45,
+    defaultChecklist: ['Strip and remake the beds', 'Vacuum and mop the floors', 'Restock amenities'],
+    minProofPhotos: 2, requiresCompletionNote: true,
+  }),
+  seedItem({ id: '3', tenantId: '1', categoryId: '1', name: 'Turndown service', requiresLocation: true, defaultDurationMinutes: 15 }),
+  seedItem({
+    id: '4', tenantId: '1', categoryId: '2', name: 'Air conditioner not cooling', defaultPriority: 'URGENT', requiresLocation: true,
+    defaultDurationMinutes: 60, minProofPhotos: 1, requiresCompletionNote: true,
+  }),
+  seedItem({ id: '5', tenantId: '1', categoryId: '2', name: 'Light bulb replacement', quantityEnabled: true, requiresLocation: true }),
+  seedItem({
+    id: '6', tenantId: '1', categoryId: '2', name: 'Plumbing / leak', defaultPriority: 'HIGH', requiresLocation: true,
+    minProofPhotos: 2, requiresCompletionNote: true,
+  }),
+  seedItem({ id: '7', tenantId: '1', categoryId: '3', name: 'Airport transfer', description: 'Arrange the hotel car or a taxi' }),
+  seedItem({ id: '8', tenantId: '1', categoryId: '3', name: 'Late checkout request', defaultPriority: 'LOW' }),
+  seedItem({ id: '9', tenantId: '1', categoryId: '4', name: 'In-room dining', quantityEnabled: true, requiresLocation: true, defaultDurationMinutes: 30 }),
+  seedItem({ id: '10', tenantId: '1', categoryId: '4', name: 'Minibar restock', quantityEnabled: true, requiresLocation: true }),
+  seedItem({ id: '11', tenantId: '2', categoryId: '5', name: 'Extra towels', quantityEnabled: true, requiresLocation: true }),
+  seedItem({ id: '12', tenantId: '2', categoryId: '6', name: 'Air conditioner not cooling', defaultPriority: 'URGENT', requiresLocation: true }),
+  seedItem({ id: '13', tenantId: '3', categoryId: '7', name: 'Room cleaning', requiresLocation: true }),
+  seedItem({ id: '14', tenantId: '3', categoryId: '8', name: 'Luggage assistance' }),
+  seedItem({ id: '15', tenantId: '4', categoryId: '9', name: 'Room cleaning', requiresLocation: true }),
 ]
 
 const routingRules: RoutingRule[] = [
@@ -424,10 +599,80 @@ const routingRules: RoutingRule[] = [
   { id: '4', tenantId: '1', priority: 20, matchItemId: null, matchCategoryId: '3', matchPartnerId: null, departmentId: '3', slaId: '1', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
   { id: '5', tenantId: '1', priority: 20, matchItemId: null, matchCategoryId: '4', matchPartnerId: null, departmentId: '4', slaId: '1', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
   { id: '6', tenantId: '1', priority: 90, matchItemId: null, matchCategoryId: null, matchPartnerId: '2', departmentId: '2', slaId: '3', remark: 'PMS housekeeping sweeps', isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '7', tenantId: '2', priority: 20, matchItemId: null, matchCategoryId: '1', matchPartnerId: null, departmentId: '5', slaId: '4', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '8', tenantId: '2', priority: 20, matchItemId: null, matchCategoryId: '2', matchPartnerId: null, departmentId: '6', slaId: '4', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '9', tenantId: '3', priority: 20, matchItemId: null, matchCategoryId: '1', matchPartnerId: null, departmentId: '7', slaId: '5', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
-  { id: '10', tenantId: '3', priority: 20, matchItemId: null, matchCategoryId: '3', matchPartnerId: null, departmentId: '8', slaId: '5', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '7', tenantId: '2', priority: 20, matchItemId: null, matchCategoryId: '5', matchPartnerId: null, departmentId: '5', slaId: '4', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '8', tenantId: '2', priority: 20, matchItemId: null, matchCategoryId: '6', matchPartnerId: null, departmentId: '6', slaId: '4', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '9', tenantId: '3', priority: 20, matchItemId: null, matchCategoryId: '7', matchPartnerId: null, departmentId: '7', slaId: '5', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '10', tenantId: '3', priority: 20, matchItemId: null, matchCategoryId: '8', matchPartnerId: null, departmentId: '8', slaId: '5', remark: null, isActive: true, createDate: SEED, updateDate: SEED },
+]
+
+// ── seed: locations ───────────────────────────────────────────────────────────
+
+const locationTypes: LocationType[] = [
+  { id: '1', tenantId: '1', name: 'Guest Room', code: 'RM', linksRequester: true, sort: 1, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '2', tenantId: '1', name: 'Floor', code: 'FL', linksRequester: false, sort: 2, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '3', tenantId: '1', name: 'Public Area', code: 'PA', linksRequester: false, sort: 3, isActive: true, createDate: SEED, updateDate: SEED },
+  // Deactivated: must not be offered when creating a location, but locations
+  // that already reference it keep showing its real name.
+  { id: '4', tenantId: '1', name: 'Back Office', code: 'BO', linksRequester: false, sort: 4, isActive: false, createDate: SEED, updateDate: SEED },
+  { id: '5', tenantId: '2', name: 'Guest Room', code: 'RM', linksRequester: true, sort: 1, isActive: true, createDate: SEED, updateDate: SEED },
+]
+
+const propertyLocations: PropertyLocation[] = [
+  { id: '1', tenantId: '1', locationTypeId: '1', name: 'Room 1204', code: '1204', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '2', tenantId: '1', locationTypeId: '1', name: 'Room 0908', code: '0908', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '3', tenantId: '1', locationTypeId: '1', name: 'Room 1102', code: '1102', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '4', tenantId: '1', locationTypeId: '2', name: 'Floor 7', code: 'F7', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '5', tenantId: '1', locationTypeId: '3', name: 'Lobby', code: 'LBY', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '6', tenantId: '1', locationTypeId: '4', name: 'Staff Canteen', code: 'CANT', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '7', tenantId: '2', locationTypeId: '5', name: 'Room 0304', code: '0304', parentId: null, isActive: true, createDate: SEED, updateDate: SEED },
+]
+
+// ── seed: teams ───────────────────────────────────────────────────────────────
+
+const teams: Team[] = [
+  { id: '1', tenantId: '1', name: 'HK Morning Shift', description: 'Rooms and corridors, 06:00–14:00', departmentId: '1', isActive: true, createDate: SEED, updateDate: SEED },
+  { id: '2', tenantId: '1', name: 'Engineering On-Call', description: 'After-hours maintenance response', departmentId: '2', isActive: true, createDate: SEED, updateDate: SEED },
+]
+
+/** Membership rows: one per (team, user). Never duplicated — add is guarded. */
+const teamMembers: Array<{ teamId: Id, userId: Id }> = [
+  { teamId: '1', userId: '10' },
+  { teamId: '1', userId: '11' },
+  { teamId: '2', userId: '12' },
+]
+
+// ── seed: operating schedules ─────────────────────────────────────────────────
+
+const operatingSchedules: OperatingSchedule[] = [
+  {
+    id: '1', tenantId: '1', name: 'Property 24/7', isDefault: true, departmentId: null,
+    // Open around the clock, every day. 1440 = until midnight.
+    windows: [0, 1, 2, 3, 4, 5, 6].map(weekday => ({ weekday, opensMinutes: 0, closesMinutes: 1440 })),
+    exceptions: [],
+    createDate: SEED, updateDate: SEED,
+  },
+  {
+    id: '2', tenantId: '1', name: 'Engineering Hours', isDefault: false, departmentId: '2',
+    // Sunday (weekday 0) has no window at all: that IS the closed flag.
+    windows: [
+      { weekday: 1, opensMinutes: 480, closesMinutes: 1020 },
+      { weekday: 2, opensMinutes: 480, closesMinutes: 1020 },
+      { weekday: 3, opensMinutes: 480, closesMinutes: 1020 },
+      { weekday: 4, opensMinutes: 480, closesMinutes: 1020 },
+      { weekday: 5, opensMinutes: 480, closesMinutes: 1020 },
+      { weekday: 6, opensMinutes: 480, closesMinutes: 780 },
+    ],
+    exceptions: [
+      { date: '2026-08-17', isClosed: true, opensMinutes: null, closesMinutes: null },
+    ],
+    createDate: SEED, updateDate: SEED,
+  },
+]
+
+// ── seed: terminology overrides ───────────────────────────────────────────────
+
+const terminologyOverrides: Array<{ tenantId: Id, key: TerminologyKey, value: string }> = [
+  { tenantId: '1', key: 'requester', value: 'Guest' },
 ]
 
 const boards: Board[] = [
@@ -933,7 +1178,7 @@ function boardForTenant(tenantId: Id) {
   return {
     ...board,
     columns: boardColumns
-      .filter(c => c.boardId === board.id && c.isActive)
+      .filter(c => c.boardId === board.id && c.isActive && !c.isRemoved)
       .sort((a, b) => a.columnSort - b.columnSort),
   }
 }
@@ -1437,9 +1682,14 @@ export function handleFakeApiRequest(path: string, opts: FakeApiOptions = {}) {
     const status = String(body.status ?? '') as TaskStatus
     const allowed: TaskStatus[] = ['NEW', 'IN_PROGRESS', 'PENDING', 'FINISHED', 'VERIFIED', 'CANCELLED']
     if (!allowed.includes(status)) throw badRequest('Pick the status this column sets')
+    // The schema documents no minimum, but a zero or fractional sort renders
+    // the board unpredictably — enforce the real rule here.
+    if (body.columnSort !== undefined && (!Number.isInteger(Number(body.columnSort)) || Number(body.columnSort) < 1)) {
+      throw badRequest('Order must be a whole number of 1 or more')
+    }
 
     if (id) {
-      const column = boardColumns.find(c => c.id === id && c.boardId === board.id)
+      const column = boardColumns.find(c => c.id === id && c.boardId === board.id && !c.isRemoved)
       if (!column) throw notFound('Column')
       column.name = name
       column.description = (body.description as string | null)?.toString().trim() || null
@@ -1467,11 +1717,89 @@ export function handleFakeApiRequest(path: string, opts: FakeApiOptions = {}) {
     return singleRes(created)
   }
 
+  /**
+   * Soft-remove a column. If the column still has open work the removal is
+   * SKIPPED and reported as a warning — a 200 here does not mean it happened.
+   * Failing the whole request instead would be wrong too: the admin's intent
+   * ("tidy the board") is fine, only this column is not ready to go.
+   */
+  if (method === 'POST' && path === '/v1/board/columns/remove') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const board = boardForTenant(tenantId)
+    if (!board) throw notFound('Board')
+    const column = boardColumns.find(c => c.id === pid(body.id) && c.boardId === board.id && !c.isRemoved)
+    if (!column) throw notFound('Column')
+
+    const openCount = tasks.filter(t =>
+      t.tenantId === tenantId
+      && t.columnId === column.id
+      && ['NEW', 'IN_PROGRESS', 'PENDING'].includes(t.status),
+    ).length
+    if (openCount > 0) {
+      const plural = openCount === 1 ? 'task' : 'tasks'
+      return singleRes({
+        removed: false,
+        warning: `"${column.name}" still has ${openCount} open ${plural}, so the removal was skipped. Move or finish that work first.`,
+      })
+    }
+
+    column.isRemoved = true
+    column.updateDate = now
+    audit(ctx, 'board_column.removed', `board_column:${column.id}`, column.name, now, tenantId)
+    return singleRes({ removed: true, warning: null })
+  }
+
   // ════════════════════════ Catalog (native) ════════════════════════
 
   if (method === 'GET' && path === '/v1/catalog/categories') {
-    requireSession(ctx)
-    return listRes([...catalogCategories].sort((a, b) => a.name.localeCompare(b.name)))
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const rows = catalogCategories
+      .filter(c => c.tenantId === tenantId)
+      .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
+    return listRes(rows)
+  }
+
+  if (method === 'POST' && path === '/v1/catalog/categories/upsert') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const name = String(body.name ?? '').trim()
+    if (!name) throw badRequest('A category name is required')
+    const code = String(body.code ?? '').trim().toUpperCase()
+    if (!code) throw badRequest('A category code is required')
+    const sort = Number(body.sort)
+    if (!Number.isInteger(sort) || sort < 0) throw badRequest('Sort must be a whole number of 0 or more')
+    const icon = (body.icon as string | null)?.toString().trim() || null
+
+    const id = pid(body.id)
+    if (id) {
+      const category = catalogCategories.find(c => c.id === id && c.tenantId === tenantId)
+      if (!category) throw notFound('Category')
+      category.name = name
+      category.code = code
+      category.icon = icon
+      category.sort = sort
+      category.isActive = body.isActive === undefined ? category.isActive : Boolean(body.isActive)
+      category.updateDate = now
+      audit(ctx, 'catalog_category.updated', `catalog_category:${category.id}`, name, now, tenantId)
+      return singleRes(category)
+    }
+
+    const created: CatalogCategory = {
+      id: nextId(catalogCategories),
+      tenantId,
+      name,
+      code,
+      icon,
+      sort,
+      isActive: body.isActive === undefined ? true : Boolean(body.isActive),
+      createDate: now,
+      updateDate: now,
+    }
+    catalogCategories.push(created)
+    audit(ctx, 'catalog_category.created', `catalog_category:${created.id}`, name, now, tenantId)
+    return singleRes(created)
   }
 
   if (method === 'GET' && path === '/v1/catalog/items') {
@@ -1483,38 +1811,413 @@ export function handleFakeApiRequest(path: string, opts: FakeApiOptions = {}) {
     return listRes(rows)
   }
 
+  /**
+   * Catalog item upsert. A FULL REPLACE, not a patch: every stored field takes
+   * the request's value, so a client that does not edit a field must still echo
+   * it back — omitting `defaultDurationMinutes` clears it (the bug the admin
+   * screen once had: every save silently wiped the duration another producer
+   * had written).
+   */
   if (method === 'POST' && path === '/v1/catalog/items/upsert') {
     const tenantId = requireTenantId(ctx)
     requireRole(ctx, 'admin')
     const name = String(body.name ?? '').trim()
     if (!name) throw badRequest('An item name is required')
-    const categoryId = pid(body.categoryId)
-    if (!catalogCategories.some(c => c.id === categoryId)) throw badRequest('Pick a category')
 
     const id = pid(body.id)
-    if (id) {
-      const item = catalogItems.find(i => i.id === id && i.tenantId === tenantId)
-      if (!item) throw notFound('Catalog item')
-      item.name = name
-      item.categoryId = categoryId
-      item.quantityEnabled = Boolean(body.quantityEnabled)
-      item.isActive = body.isActive === undefined ? item.isActive : Boolean(body.isActive)
-      item.updateDate = now
-      return singleRes(item)
+    const existing = id ? catalogItems.find(i => i.id === id && i.tenantId === tenantId) : undefined
+    if (id && !existing) throw notFound('Catalog item')
+
+    const categoryId = pid(body.categoryId)
+    const category = catalogCategories.find(c => c.id === categoryId && c.tenantId === tenantId)
+    if (!category) throw badRequest('Pick a category at this property')
+    // Keeping an item on the deactivated category it already has is fine;
+    // moving an item onto one is a choice whose only outcome is confusion.
+    if (!category.isActive && existing?.categoryId !== categoryId) {
+      throw badRequest('That category is deactivated — pick an active one')
+    }
+
+    const priority = String(body.defaultPriority ?? 'NORMAL') as TaskPriority
+    const priorities: TaskPriority[] = ['LOW', 'NORMAL', 'HIGH', 'URGENT']
+    if (!priorities.includes(priority)) throw badRequest('Pick a priority')
+
+    const minProofPhotos = Number(body.minProofPhotos ?? 0)
+    if (!Number.isInteger(minProofPhotos) || minProofPhotos < 0 || minProofPhotos > 10) {
+      throw badRequest('Min proof photos must be a whole number between 0 and 10')
+    }
+
+    // Blank steps are dropped, not just trimmed: an empty label would seed a
+    // blank checklist step onto every task raised from this item.
+    const checklistRaw = Array.isArray(body.defaultChecklist) ? body.defaultChecklist : []
+    const defaultChecklist = checklistRaw.map(step => String(step ?? '').trim()).filter(Boolean)
+
+    const duration = Number(body.defaultDurationMinutes)
+    const defaultDurationMinutes = Number.isInteger(duration) && duration > 0 ? duration : null
+
+    const next = {
+      categoryId,
+      name,
+      description: (body.description as string | null)?.toString().trim() || null,
+      quantityEnabled: Boolean(body.quantityEnabled),
+      defaultPriority: priority,
+      requiresLocation: Boolean(body.requiresLocation),
+      defaultChecklist,
+      defaultDurationMinutes,
+      minProofPhotos,
+      requiresCompletionNote: Boolean(body.requiresCompletionNote),
+    }
+
+    if (existing) {
+      Object.assign(existing, next)
+      existing.isActive = body.isActive === undefined ? existing.isActive : Boolean(body.isActive)
+      existing.updateDate = now
+      return singleRes(existing)
     }
 
     const created: CatalogItem = {
       id: nextId(catalogItems),
       tenantId,
-      categoryId,
-      name,
-      quantityEnabled: Boolean(body.quantityEnabled),
+      ...next,
       isActive: body.isActive === undefined ? true : Boolean(body.isActive),
       createDate: now,
       updateDate: now,
     }
     catalogItems.push(created)
     return singleRes(created)
+  }
+
+  // ════════════════════════ Locations ════════════════════════
+
+  if (method === 'GET' && path === '/v1/location-types') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const rows = locationTypes
+      .filter(t => t.tenantId === tenantId)
+      .sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
+    return listRes(rows)
+  }
+
+  if (method === 'POST' && path === '/v1/location-types/upsert') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const name = String(body.name ?? '').trim()
+    if (!name) throw badRequest('A location type name is required')
+    const code = String(body.code ?? '').trim().toUpperCase()
+    if (!code) throw badRequest('A location type code is required')
+    const sort = Number(body.sort)
+    if (!Number.isInteger(sort) || sort < 0) throw badRequest('Sort must be a whole number of 0 or more')
+
+    const id = pid(body.id)
+    if (id) {
+      const type = locationTypes.find(t => t.id === id && t.tenantId === tenantId)
+      if (!type) throw notFound('Location type')
+      type.name = name
+      type.code = code
+      type.linksRequester = Boolean(body.linksRequester)
+      type.sort = sort
+      type.isActive = body.isActive === undefined ? type.isActive : Boolean(body.isActive)
+      type.updateDate = now
+      audit(ctx, 'location_type.updated', `location_type:${type.id}`, name, now, tenantId)
+      return singleRes(type)
+    }
+
+    const created: LocationType = {
+      id: nextId(locationTypes),
+      tenantId,
+      name,
+      code,
+      linksRequester: Boolean(body.linksRequester),
+      sort,
+      isActive: body.isActive === undefined ? true : Boolean(body.isActive),
+      createDate: now,
+      updateDate: now,
+    }
+    locationTypes.push(created)
+    audit(ctx, 'location_type.created', `location_type:${created.id}`, name, now, tenantId)
+    return singleRes(created)
+  }
+
+  if (method === 'GET' && path === '/v1/locations') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const rows = propertyLocations
+      .filter(l => l.tenantId === tenantId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return listRes(rows)
+  }
+
+  if (method === 'POST' && path === '/v1/locations/upsert') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const name = String(body.name ?? '').trim()
+    if (!name) throw badRequest('A location name is required')
+    const code = String(body.code ?? '').trim()
+    if (!code) throw badRequest('A location code is required')
+
+    const id = pid(body.id)
+    const existing = id ? propertyLocations.find(l => l.id === id && l.tenantId === tenantId) : undefined
+    if (id && !existing) throw notFound('Location')
+
+    const locationTypeId = pid(body.locationTypeId)
+    const type = locationTypes.find(t => t.id === locationTypeId && t.tenantId === tenantId)
+    if (!type) throw badRequest('Pick a location type at this property')
+    // A location may stay on a since-deactivated type; it may not move onto one.
+    if (!type.isActive && existing?.locationTypeId !== locationTypeId) {
+      throw badRequest('That location type is deactivated — pick an active one')
+    }
+
+    if (existing) {
+      existing.name = name
+      existing.code = code
+      existing.locationTypeId = locationTypeId
+      existing.isActive = body.isActive === undefined ? existing.isActive : Boolean(body.isActive)
+      existing.updateDate = now
+      audit(ctx, 'location.updated', `location:${existing.id}`, name, now, tenantId)
+      return singleRes(existing)
+    }
+
+    const created: PropertyLocation = {
+      id: nextId(propertyLocations),
+      tenantId,
+      locationTypeId,
+      name,
+      code,
+      parentId: null,
+      isActive: body.isActive === undefined ? true : Boolean(body.isActive),
+      createDate: now,
+      updateDate: now,
+    }
+    propertyLocations.push(created)
+    audit(ctx, 'location.created', `location:${created.id}`, name, now, tenantId)
+    return singleRes(created)
+  }
+
+  // ════════════════════════ Teams ════════════════════════
+
+  if (method === 'GET' && path === '/v1/teams') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const rows = teams
+      .filter(t => t.tenantId === tenantId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(t => ({ ...t, memberCount: teamMembers.filter(m => m.teamId === t.id).length }))
+    return listRes(rows)
+  }
+
+  if (method === 'POST' && path === '/v1/teams/upsert') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const name = String(body.name ?? '').trim()
+    if (!name) throw badRequest('A team name is required')
+    const departmentId = pid(body.departmentId) || null
+    if (departmentId && !departments.some(d => d.id === departmentId && d.tenantId === tenantId)) {
+      throw badRequest('Pick a department at this property')
+    }
+
+    const id = pid(body.id)
+    if (id) {
+      const team = teams.find(t => t.id === id && t.tenantId === tenantId)
+      if (!team) throw notFound('Team')
+      team.name = name
+      team.description = (body.description as string | null)?.toString().trim() || null
+      team.departmentId = departmentId
+      team.isActive = body.isActive === undefined ? team.isActive : Boolean(body.isActive)
+      team.updateDate = now
+      audit(ctx, 'team.updated', `team:${team.id}`, name, now, tenantId)
+      return singleRes(team)
+    }
+
+    const created: Team = {
+      id: nextId(teams),
+      tenantId,
+      name,
+      description: (body.description as string | null)?.toString().trim() || null,
+      departmentId,
+      isActive: body.isActive === undefined ? true : Boolean(body.isActive),
+      createDate: now,
+      updateDate: now,
+    }
+    teams.push(created)
+    audit(ctx, 'team.created', `team:${created.id}`, name, now, tenantId)
+    return singleRes(created)
+  }
+
+  /** Member user ids for one team. */
+  if (method === 'GET' && /^\/v1\/teams\/[^/]+\/members$/.test(path)) {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const teamId = path.split('/')[3]!
+    const team = teams.find(t => t.id === teamId && t.tenantId === tenantId)
+    if (!team) throw notFound('Team')
+    return listRes(teamMembers.filter(m => m.teamId === team.id).map(m => m.userId))
+  }
+
+  /**
+   * Add a member. Adding someone already on the team is a 409, not a silent
+   * duplicate row — a double-clicked Add must not list the same person twice.
+   */
+  if (method === 'POST' && /^\/v1\/teams\/[^/]+\/members\/add$/.test(path)) {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const teamId = path.split('/')[3]!
+    const team = teams.find(t => t.id === teamId && t.tenantId === tenantId)
+    if (!team) throw notFound('Team')
+    const userId = pid(body.userId)
+    if (!staffProfiles.some(p => p.userId === userId && p.tenantId === tenantId && p.isActive)) {
+      throw badRequest('That person does not work at this property')
+    }
+    if (teamMembers.some(m => m.teamId === team.id && m.userId === userId)) {
+      throw conflict('ALREADY_MEMBER', 'That person is already on this team')
+    }
+    teamMembers.push({ teamId: team.id, userId })
+    team.updateDate = now
+    audit(ctx, 'team.member_added', `team:${team.id} user:${userId}`, null, now, tenantId)
+    return singleRes({ teamId: team.id, userId })
+  }
+
+  /** Remove a member. Removing someone not on the team is a 404. */
+  if (method === 'POST' && /^\/v1\/teams\/[^/]+\/members\/remove$/.test(path)) {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const teamId = path.split('/')[3]!
+    const team = teams.find(t => t.id === teamId && t.tenantId === tenantId)
+    if (!team) throw notFound('Team')
+    const userId = pid(body.userId)
+    const index = teamMembers.findIndex(m => m.teamId === team.id && m.userId === userId)
+    if (index === -1) throw notFound('Team member')
+    teamMembers.splice(index, 1)
+    team.updateDate = now
+    audit(ctx, 'team.member_removed', `team:${team.id} user:${userId}`, null, now, tenantId)
+    return singleRes({ ok: true })
+  }
+
+  // ════════════════════════ Operating schedules ════════════════════════
+
+  if (method === 'GET' && path === '/v1/operating-schedules') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const rows = operatingSchedules
+      .filter(s => s.tenantId === tenantId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    return listRes(rows)
+  }
+
+  /**
+   * Schedule upsert. Every save replaces the FULL windows/exceptions set —
+   * there is no partial merge, so a rename must echo the hours back and an
+   * hours edit must echo the name back.
+   */
+  if (method === 'POST' && path === '/v1/operating-schedules/upsert') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const name = String(body.name ?? '').trim()
+    if (!name) throw badRequest('A schedule name is required')
+    const departmentId = pid(body.departmentId) || null
+    if (departmentId && !departments.some(d => d.id === departmentId && d.tenantId === tenantId)) {
+      throw badRequest('Pick a department at this property')
+    }
+    const isDefault = Boolean(body.isDefault)
+
+    const id = pid(body.id)
+    const existing = id ? operatingSchedules.find(s => s.id === id && s.tenantId === tenantId) : undefined
+    if (id && !existing) throw notFound('Operating schedule')
+
+    // One default per tenant, one schedule per department — refused, not
+    // silently reshuffled: the caller should see which schedule is in the way.
+    if (isDefault && operatingSchedules.some(s => s.tenantId === tenantId && s.isDefault && s.id !== existing?.id)) {
+      throw conflict('DUPLICATE_DEFAULT', 'Another schedule is already the default for this property')
+    }
+    if (departmentId && operatingSchedules.some(s => s.tenantId === tenantId && s.departmentId === departmentId && s.id !== existing?.id)) {
+      throw conflict('DEPARTMENT_SCHEDULED', 'That department already has an operating schedule')
+    }
+
+    // A weekday with no window is closed; a present window must be a real span.
+    const windowsRaw = Array.isArray(body.windows) ? body.windows as Array<Record<string, unknown>> : []
+    const windows: OperatingWindow[] = windowsRaw.map((w) => {
+      const weekday = Number(w.weekday)
+      const opensMinutes = Number(w.opensMinutes)
+      const closesMinutes = Number(w.closesMinutes)
+      if (!Number.isInteger(weekday) || weekday < 0 || weekday > 6) throw badRequest('Weekday must be 0 (Sunday) to 6 (Saturday)')
+      if (!Number.isInteger(opensMinutes) || opensMinutes < 0 || opensMinutes > 1439) throw badRequest('Opening time must be within the day')
+      if (!Number.isInteger(closesMinutes) || closesMinutes <= opensMinutes || closesMinutes > 1440) {
+        throw badRequest('A window must close after it opens (1440 = until midnight)')
+      }
+      return { weekday, opensMinutes, closesMinutes }
+    })
+
+    const exceptionsRaw = Array.isArray(body.exceptions) ? body.exceptions as Array<Record<string, unknown>> : []
+    const exceptions: OperatingException[] = exceptionsRaw.map((e) => {
+      const date = String(e.date ?? '').trim()
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw badRequest('An exception needs a date (YYYY-MM-DD)')
+      const isClosed = Boolean(e.isClosed)
+      if (isClosed) return { date, isClosed, opensMinutes: null, closesMinutes: null }
+      const opensMinutes = Number(e.opensMinutes)
+      const closesMinutes = Number(e.closesMinutes)
+      if (!Number.isInteger(opensMinutes) || !Number.isInteger(closesMinutes) || closesMinutes <= opensMinutes) {
+        throw badRequest('An open exception needs opening hours that close after they open')
+      }
+      return { date, isClosed, opensMinutes, closesMinutes }
+    })
+
+    if (existing) {
+      existing.name = name
+      existing.isDefault = isDefault
+      existing.departmentId = departmentId
+      existing.windows = windows
+      existing.exceptions = exceptions
+      existing.updateDate = now
+      audit(ctx, 'operating_schedule.updated', `operating_schedule:${existing.id}`, name, now, tenantId)
+      return singleRes(existing)
+    }
+
+    const created: OperatingSchedule = {
+      id: nextId(operatingSchedules),
+      tenantId,
+      name,
+      isDefault,
+      departmentId,
+      windows,
+      exceptions,
+      createDate: now,
+      updateDate: now,
+    }
+    operatingSchedules.push(created)
+    audit(ctx, 'operating_schedule.created', `operating_schedule:${created.id}`, name, now, tenantId)
+    return singleRes(created)
+  }
+
+  // ════════════════════════ Terminology ════════════════════════
+
+  /** The merged map: this tenant's overrides on top of the product defaults. */
+  if (method === 'GET' && path === '/v1/terminology') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'staff', 'leader', 'admin')
+    const merged: Record<TerminologyKey, string> = { ...TERMINOLOGY_DEFAULTS }
+    for (const override of terminologyOverrides) {
+      if (override.tenantId === tenantId) merged[override.key] = override.value
+    }
+    return singleRes(merged)
+  }
+
+  if (method === 'PATCH' && path === '/v1/terminology') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const key = String(body.key ?? '') as TerminologyKey
+    if (!TERMINOLOGY_KEYS.includes(key)) throw badRequest('That term cannot be renamed')
+    const value = String(body.value ?? '').trim()
+    if (!value) throw badRequest('A term needs a name')
+    if (value.length > 50) throw badRequest('Keep the term under 50 characters')
+
+    const existing = terminologyOverrides.find(o => o.tenantId === tenantId && o.key === key)
+    if (existing) existing.value = value
+    else terminologyOverrides.push({ tenantId, key, value })
+    audit(ctx, 'terminology.updated', `terminology:${key}`, value, now, tenantId)
+
+    const merged: Record<TerminologyKey, string> = { ...TERMINOLOGY_DEFAULTS }
+    for (const override of terminologyOverrides) {
+      if (override.tenantId === tenantId) merged[override.key] = override.value
+    }
+    return singleRes(merged)
   }
 
   // ════════════════════════ Departments ════════════════════════
@@ -1574,10 +2277,12 @@ export function handleFakeApiRequest(path: string, opts: FakeApiOptions = {}) {
     requireRole(ctx, 'admin')
     const name = String(body.name ?? '').trim()
     if (!name) throw badRequest('An SLA name is required')
+    // Whole minutes only: "15.5" silently becoming a real SLA target is the
+    // same class of risk as a seconds/minutes conversion bug.
     const responseTime = Number(body.responseTime)
     const resolutionTime = Number(body.resolutionTime)
-    if (!Number.isFinite(responseTime) || responseTime < 1) throw badRequest('Response target must be at least 1 minute')
-    if (!Number.isFinite(resolutionTime) || resolutionTime < 1) throw badRequest('Resolution target must be at least 1 minute')
+    if (!Number.isInteger(responseTime) || responseTime < 1) throw badRequest('Response target must be a whole number of minutes, at least 1')
+    if (!Number.isInteger(resolutionTime) || resolutionTime < 1) throw badRequest('Resolution target must be a whole number of minutes, at least 1')
     const isDefault = Boolean(body.isDefault)
 
     const id = pid(body.id)
@@ -1683,6 +2388,17 @@ export function handleFakeApiRequest(path: string, opts: FakeApiOptions = {}) {
     return singleRes(created)
   }
 
+  /** Delete a routing rule. Hard delete: rules carry no history worth keeping. */
+  if (method === 'POST' && path === '/v1/routing-rules/delete') {
+    const tenantId = requireTenantId(ctx)
+    requireRole(ctx, 'admin')
+    const index = routingRules.findIndex(r => r.id === pid(body.id) && r.tenantId === tenantId)
+    if (index === -1) throw notFound('Routing rule')
+    const [removed] = routingRules.splice(index, 1)
+    audit(ctx, 'routing_rule.deleted', `routing_rule:${removed!.id}`, removed!.remark, now, tenantId)
+    return singleRes({ ok: true })
+  }
+
   // ════════════════════════ Staff directory ════════════════════════
 
   if (method === 'GET' && path === '/v1/staff') {
@@ -1748,6 +2464,13 @@ export function handleFakeApiRequest(path: string, opts: FakeApiOptions = {}) {
     }
 
     // Adding someone new: match on email, creating the user if unknown.
+    // Admin cannot be granted at creation — the account is added as staff or
+    // leader, then promoted in a second, deliberate step. One request that both
+    // invents an account and hands it the property is too much power in one
+    // typo.
+    if (role === 'admin') {
+      throw badRequest('Admin cannot be granted at creation. Add them as staff or leader, then promote them.')
+    }
     const email = String(body.email ?? '').trim().toLowerCase()
     if (!email) throw badRequest('An email address is required')
     const firstName = String(body.firstName ?? '').trim()

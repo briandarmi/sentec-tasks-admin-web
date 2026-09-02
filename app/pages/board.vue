@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { PencilIcon, PlusIcon, SquareKanbanIcon } from '@lucide/vue'
+import { PencilIcon, PlusIcon, SquareKanbanIcon, Trash2Icon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
 import type { BoardColumn, BoardWithColumns, TaskStatus } from '~/utils/clientFakeApi'
 import { statusMeta } from '~/utils/task-ui'
@@ -32,6 +32,53 @@ const dialogTitle = computed(() => (editId.value ? 'Edit column' : 'New column')
  * later from an empty board.
  */
 const missingNewColumn = computed(() => columns.value.length > 0 && !columns.value.some(c => c.status === 'NEW'))
+
+/** Whole number, 1 or more — the API refuses anything else. */
+function isValidSort(value: unknown) {
+  return Number.isInteger(Number(value)) && Number(value) >= 1
+}
+
+const sortInvalid = computed(() => !isValidSort(formSort.value))
+const canSave = computed(() => !isSaving.value && Boolean(formName.value.trim()) && !sortInvalid.value)
+
+// ── column removal ────────────────────────────────────────────────────────────
+
+const removeDialogOpen = ref(false)
+const isRemoving = ref(false)
+/** Snapshotted at request time so the dialog names the right column. */
+const removeTarget = ref<{ id: string, name: string } | null>(null)
+/**
+ * A skipped removal comes back as a 200 with a warning, not an error — the
+ * column stays and the server explains why. It renders as its own alert so a
+ * "success" that did nothing is never mistaken for one that did.
+ */
+const removeWarning = ref('')
+
+function requestRemove(column: BoardColumn) {
+  removeTarget.value = { id: column.id, name: column.name }
+  removeDialogOpen.value = true
+}
+
+async function performRemove() {
+  const target = removeTarget.value
+  if (!target || isRemoving.value) return
+  isRemoving.value = true
+  errorMessage.value = ''
+  removeWarning.value = ''
+  try {
+    const result = await api.removeBoardColumn(target.id)
+    if (!result.removed) removeWarning.value = result.warning ?? 'The removal was skipped.'
+    await load()
+  }
+  catch (e) {
+    errorMessage.value = (e as Error).message
+  }
+  finally {
+    isRemoving.value = false
+    removeDialogOpen.value = false
+    removeTarget.value = null
+  }
+}
 
 async function load() {
   isLoading.value = true
@@ -116,6 +163,11 @@ onMounted(load)
       <AlertDescription>{{ errorMessage }}</AlertDescription>
     </Alert>
 
+    <Alert v-if="removeWarning">
+      <AlertTitle>Removal skipped</AlertTitle>
+      <AlertDescription>{{ removeWarning }}</AlertDescription>
+    </Alert>
+
     <Alert v-if="missingNewColumn" variant="destructive">
       <AlertTitle>No column maps to “New”</AlertTitle>
       <AlertDescription>
@@ -151,10 +203,22 @@ onMounted(load)
                   </span>
                 </TableCell>
                 <TableCell class="text-right">
-                  <Button size="sm" variant="outline" @click="openEdit(column)">
-                    <PencilIcon />
-                    Edit
-                  </Button>
+                  <div class="flex items-center justify-end gap-2">
+                    <Button size="sm" variant="outline" :aria-label="`Edit ${column.name}`" @click="openEdit(column)">
+                      <PencilIcon />
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      class="text-muted-foreground hover:text-destructive"
+                      :aria-label="`Remove ${column.name}`"
+                      @click="requestRemove(column)"
+                    >
+                      <Trash2Icon />
+                      Remove
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -233,7 +297,10 @@ onMounted(load)
             </div>
             <div class="space-y-2">
               <Label for="col-sort">Order</Label>
-              <Input id="col-sort" v-model.number="formSort" type="number" min="1" />
+              <Input id="col-sort" v-model.number="formSort" type="number" min="1" step="1" />
+              <p v-if="sortInvalid" role="alert" class="text-xs font-medium text-destructive">
+                Order must be a whole number of 1 or more.
+              </p>
             </div>
           </div>
 
@@ -245,11 +312,33 @@ onMounted(load)
 
         <DialogFooter>
           <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
-          <Button :disabled="isSaving || !formName.trim()" @click="save">
+          <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog v-model:open="removeDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove this column?</AlertDialogTitle>
+          <AlertDialogDescription>
+            “{{ removeTarget?.name }}” will be removed from the board. This cannot be undone.
+            If the column still has an open task, the removal is skipped instead.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isRemoving">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive-hover"
+            :disabled="isRemoving"
+            @click.prevent="performRemove"
+          >
+            {{ isRemoving ? 'Removing…' : 'Remove column' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

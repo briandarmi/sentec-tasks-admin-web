@@ -16,29 +16,38 @@ const formError = ref('')
 
 const dialogOpen = ref(false)
 const editProfileId = ref<string | undefined>()
+/** Whether the member being edited was active when the dialog opened —
+ *  deactivation (and only deactivation) is confirmed by name. */
+const editWasActive = ref(true)
 const formEmail = ref('')
 const formFirstName = ref('')
 const formLastName = ref('')
 const formPosition = ref('')
-/** The role the edited member already holds. Undefined when adding someone. */
-const editRole = ref<TenantRole | undefined>()
+const formRole = ref<TenantRole>('staff')
+/** Create-only: promote to admin in a second step after the account exists. */
+const formPromote = ref(false)
 const formDepartmentId = ref('')
 const formCanCreate = ref(true)
 const formActive = ref(true)
 
 const isEditing = computed(() => Boolean(editProfileId.value))
-const dialogTitle = computed(() => (isEditing.value ? 'Edit team member' : 'Add an administrator'))
+const dialogTitle = computed(() => (isEditing.value ? 'Edit team member' : 'Add staff'))
 
-/**
- * Display names only. This console grants the admin role and nothing else, so
- * these are how an existing member's role is *read*, not a set of choices —
- * staff and team leaders are onboarded outside it.
- */
 const ROLE_LABELS: Record<TenantRole, string> = {
   staff: 'Staff',
   leader: 'Team Leader',
   admin: 'Property Admin',
 }
+
+/**
+ * Creation offers staff and leader only: admin cannot be granted at creation.
+ * A new account that needs it is created first, then promoted in a second,
+ * deliberate request — the API refuses a create that says admin.
+ */
+const CREATE_ROLES: TenantRole[] = ['staff', 'leader']
+const ALL_ROLES: TenantRole[] = ['staff', 'leader', 'admin']
+
+const roleOptions = computed(() => (isEditing.value ? ALL_ROLES : CREATE_ROLES))
 
 const departmentName = computed(() => new Map(departments.value.map(d => [d.id, d.name])))
 
@@ -65,11 +74,13 @@ async function load() {
 
 function openCreate() {
   editProfileId.value = undefined
+  editWasActive.value = true
   formEmail.value = ''
   formFirstName.value = ''
   formLastName.value = ''
   formPosition.value = ''
-  editRole.value = undefined
+  formRole.value = 'staff'
+  formPromote.value = false
   formDepartmentId.value = departments.value[0]?.id ?? ''
   formCanCreate.value = true
   formActive.value = true
@@ -79,11 +90,13 @@ function openCreate() {
 
 function openEdit(member: StaffMember) {
   editProfileId.value = member.profileId
+  editWasActive.value = member.isActive
   formEmail.value = member.email
   formFirstName.value = member.firstName
   formLastName.value = member.lastName
   formPosition.value = member.position ?? ''
-  editRole.value = member.role
+  formRole.value = member.role
+  formPromote.value = false
   formDepartmentId.value = member.departmentId ?? ''
   formCanCreate.value = member.canCreateTask
   formActive.value = member.isActive
@@ -91,24 +104,67 @@ function openEdit(member: StaffMember) {
   dialogOpen.value = true
 }
 
+// ── deactivation confirmation ─────────────────────────────────────────────────
+
+const deactivateDialogOpen = ref(false)
+const deactivateName = computed(() => `${formFirstName.value} ${formLastName.value}`.trim() || formEmail.value)
+
+function requestSave() {
+  if (isSaving.value) return
+  // Deactivating removes someone's access; reactivating merely restores what
+  // was already granted once, so only the former asks first.
+  if (isEditing.value && editWasActive.value && !formActive.value) {
+    deactivateDialogOpen.value = true
+    return
+  }
+  void save()
+}
+
+function confirmDeactivate() {
+  deactivateDialogOpen.value = false
+  void save()
+}
+
 async function save() {
   if (isSaving.value) return
   isSaving.value = true
   formError.value = ''
   try {
-    await api.upsertStaff({
+    const saved = await api.upsertStaff({
       profileId: editProfileId.value,
       email: formEmail.value.trim(),
       firstName: formFirstName.value.trim(),
       lastName: formLastName.value.trim(),
       position: formPosition.value.trim() || null,
-      // Adding someone here makes them a property admin; editing never moves
-      // an existing member off the role they already hold.
-      role: editRole.value ?? 'admin',
+      role: formRole.value,
       departmentId: formDepartmentId.value || null,
       canCreateTask: formCanCreate.value,
       isActive: formActive.value,
     })
+
+    // Two-step promotion: the account is created with the role above, then a
+    // SEPARATE request grants admin. Never folded into the create — if the
+    // create failed there is nothing to promote, and if this step fails the
+    // account still exists and the admin must hear that rather than navigate
+    // away believing it worked.
+    if (!isEditing.value && formPromote.value) {
+      try {
+        await api.upsertStaff({
+          profileId: saved.id,
+          position: formPosition.value.trim() || null,
+          role: 'admin',
+          departmentId: formDepartmentId.value || null,
+          canCreateTask: formCanCreate.value,
+          isActive: formActive.value,
+        })
+      }
+      catch (e) {
+        await load()
+        formError.value = `${(e as Error).message} The account was still created — promote them by editing their row.`
+        return
+      }
+    }
+
     await load()
     dialogOpen.value = false
   }
@@ -127,20 +183,23 @@ onMounted(load)
   <div class="space-y-8">
     <PageHeader
       title="Staff"
-      description="Who works here, what they can do, and which department they belong to. Administrators are added here; staff and team leaders are not."
+      description="Who works here, what they can do, and which department they belong to."
       :icon="UsersIcon"
     >
       <template #actions>
         <Button size="sm" @click="openCreate">
           <UserRoundPlusIcon />
-          Add an administrator
+          Add staff
         </Button>
       </template>
     </PageHeader>
 
     <Alert v-if="errorMessage" variant="destructive">
       <AlertTitle>Something went wrong</AlertTitle>
-      <AlertDescription>{{ errorMessage }}</AlertDescription>
+      <AlertDescription class="space-y-2">
+        <p>{{ errorMessage }}</p>
+        <Button size="sm" variant="outline" @click="load">Retry</Button>
+      </AlertDescription>
     </Alert>
 
     <!-- Group grants are deliberately not editable here: only an operator can
@@ -148,11 +207,11 @@ onMounted(load)
          missing button. -->
     <Alert>
       <ShieldCheckIcon />
-      <AlertTitle>Cross-property access is granted by an operator</AlertTitle>
+      <AlertTitle>Admin is granted by promotion; brand-wide access by an operator</AlertTitle>
       <AlertDescription>
-        This console grants the property admin role only — staff and team leaders are not onboarded here, and
-        editing someone never moves them off the role they hold. Access spanning a whole brand is a group grant,
-        which only Sentinel Tech operators can give or take away, and every change is recorded in the audit trail.
+        New accounts are added as staff or team leaders — admin cannot be granted at creation, only by promoting an
+        existing member (the “add” form can queue that as an immediate second step). Access spanning a whole brand is
+        a group grant, which only Sentinel Tech operators can give or take away, and every change lands in the audit trail.
       </AlertDescription>
     </Alert>
 
@@ -204,7 +263,12 @@ onMounted(load)
                     </Badge>
                   </TableCell>
                   <TableCell class="text-right">
-                    <Button size="sm" variant="outline" @click="openEdit(member)">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      :aria-label="`Edit ${member.firstName} ${member.lastName}`"
+                      @click="openEdit(member)"
+                    >
                       <PencilIcon />
                       Edit
                     </Button>
@@ -221,7 +285,7 @@ onMounted(load)
       v-if="!isLoading && members.length === 0"
       :icon="UsersIcon"
       title="Nobody here yet"
-      description="Add an administrator to configure this property."
+      description="Add the people who work at this property."
     />
 
     <Dialog v-model:open="dialogOpen">
@@ -270,19 +334,20 @@ onMounted(load)
           </div>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <!-- No role picker: this console grants the admin role only. Showing
-                 the role an existing member already holds, rather than offering
-                 to change it, is what keeps an edit from quietly promoting a
-                 room attendant to property admin. -->
             <div class="space-y-2">
               <Label>Role</Label>
-              <div class="flex min-h-9 items-center gap-2 rounded-md border bg-muted/40 px-3">
-                <Badge variant="secondary">{{ ROLE_LABELS[editRole ?? 'admin'] }}</Badge>
-              </div>
+              <Select v-model="formRole">
+                <SelectTrigger class="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="role in roleOptions" :key="role" :value="role">{{ ROLE_LABELS[role] }}</SelectItem>
+                </SelectContent>
+              </Select>
               <p class="text-xs text-muted-foreground">
                 {{ isEditing
-                  ? 'Roles are not changed from this console.'
-                  : 'Added as a property admin — the only role this console grants.' }}
+                  ? 'Role changes apply at this property only.'
+                  : 'Admin cannot be granted at creation — use the promotion step below.' }}
               </p>
             </div>
             <div class="space-y-2">
@@ -300,6 +365,18 @@ onMounted(load)
                    leaving it empty is a real choice, not a blank field. -->
               <p class="text-xs text-muted-foreground">Staff see their own department's queue. Leave empty for cross-department cover.</p>
             </div>
+          </div>
+
+          <div v-if="!isEditing" class="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <Label for="staff-promote" class="cursor-pointer">Promote to admin after creating</Label>
+              <!-- Said before the click, not discovered after: the create and
+                   the promotion are two requests, and the second can fail alone. -->
+              <p class="text-xs text-muted-foreground">
+                The account is created with the role above, then immediately promoted to Property Admin in a second step.
+              </p>
+            </div>
+            <Switch id="staff-promote" v-model="formPromote" />
           </div>
 
           <div class="flex items-center justify-between rounded-lg border px-4 py-3">
@@ -323,12 +400,30 @@ onMounted(load)
           <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button
             :disabled="isSaving || (!isEditing && (!formEmail.trim() || !formFirstName.trim()))"
-            @click="save"
+            @click="requestSave"
           >
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog v-model:open="deactivateDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Deactivate this team member?</AlertDialogTitle>
+          <AlertDialogDescription>
+            “{{ deactivateName }}” will no longer be able to sign in here or be assigned tasks.
+            This can be reversed by activating them again.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction class="bg-destructive text-white hover:bg-destructive-hover" @click="confirmDeactivate">
+            Deactivate
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

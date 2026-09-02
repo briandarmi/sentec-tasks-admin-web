@@ -2,16 +2,21 @@
 import { computed } from 'vue'
 import {
   Building2Icon,
+  CalendarClockIcon,
   GaugeIcon,
+  LanguagesIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MapPinIcon,
   MapPinnedIcon,
   NetworkIcon,
   PlugZapIcon,
   ScrollTextIcon,
+  ShapesIcon,
   SquareKanbanIcon,
   TimerIcon,
   UsersIcon,
+  UsersRoundIcon,
   UtensilsCrossedIcon,
 } from '@lucide/vue'
 import { useCaps } from '~/composables/useCaps'
@@ -36,18 +41,37 @@ const access = useConsoleAccess()
 interface NavItem { to: string, label: string, icon: unknown }
 interface NavGroup { label: string, items: NavItem[], visible: boolean }
 
+// The property screens are grouped Work / Organisation / Rules — what staff
+// see, who does it, and how it is targeted — so thirteen entries stay scannable.
 const navGroups = computed<NavGroup[]>(() => [
   {
-    label: 'Property',
+    label: 'Work',
     visible: caps.canConfigureProperty.value,
     items: [
       { to: '/', label: 'Overview', icon: LayoutDashboardIcon },
-      { to: '/departments', label: 'Departments', icon: Building2Icon },
-      { to: '/slas', label: 'SLAs', icon: TimerIcon },
-      { to: '/routing', label: 'Routing Rules', icon: MapPinnedIcon },
       { to: '/board', label: 'Board Columns', icon: SquareKanbanIcon },
       { to: '/catalog', label: 'Catalog', icon: UtensilsCrossedIcon },
+      { to: '/categories', label: 'Categories', icon: ShapesIcon },
+    ],
+  },
+  {
+    label: 'Organisation',
+    visible: caps.canConfigureProperty.value,
+    items: [
+      { to: '/departments', label: 'Departments', icon: Building2Icon },
       { to: '/staff', label: 'Staff', icon: UsersIcon },
+      { to: '/teams', label: 'Teams', icon: UsersRoundIcon },
+      { to: '/locations', label: 'Locations', icon: MapPinIcon },
+    ],
+  },
+  {
+    label: 'Rules',
+    visible: caps.canConfigureProperty.value,
+    items: [
+      { to: '/routing', label: 'Routing Rules', icon: MapPinnedIcon },
+      { to: '/slas', label: 'SLAs', icon: TimerIcon },
+      { to: '/operating-schedules', label: 'Operating Schedules', icon: CalendarClockIcon },
+      { to: '/terminology', label: 'Terminology', icon: LanguagesIcon },
       { to: '/audit', label: 'Audit Trail', icon: ScrollTextIcon },
     ],
   },
