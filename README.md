@@ -126,6 +126,40 @@ sidebar's per-group `visible` flag, not in the URL.
 - **The group report is `GET /v1/groups/{id}/stats`**: authorized for operators
   and grant holders only, all seven statuses zero-filled per property.
 
+## Deploying to GitHub Pages
+
+[`.github/workflows/pages.yml`](.github/workflows/pages.yml) builds the shell
+and publishes it to GitHub Pages on every push to `feat/overview-compliance`
+(or by hand from the Actions tab). The published site is a *project* page,
+so it lives under `/sentec-tasks-admin-web/`; the workflow passes that path to Nuxt as
+`NUXT_APP_BASE_URL`, and `nuxt.config.ts` reads it into `app.baseURL` — the
+repository name is never hardcoded, so a fork publishes under its own name.
+
+Because the app runs entirely against its in-browser mock, nothing else is
+needed: no backend, no secret, no environment file. Two host-specific details
+are already handled:
+
+- **Deep links.** Pages has no rewrite rule, but it serves `404.html` for any
+  unknown path, and the static preset emits `404.html` as a byte-identical copy
+  of the shell — so `/sentec-tasks-admin-web/tasks/…` loads the app, which then routes.
+- **`_nuxt/` and `_fonts/`.** Jekyll would drop underscore-prefixed
+  directories. The Actions deploy never runs Jekyll, and `public/.nojekyll`
+  makes that explicit for anyone who switches the source back to a branch.
+
+A local build of the same artifact, for checking before pushing:
+
+```bash
+NUXT_APP_BASE_URL=/sentec-tasks-admin-web/ pnpm generate
+# then serve .output/public at that sub-path, e.g.
+# mkdir -p /tmp/pages && ln -sfn "$PWD/.output/public" /tmp/pages/sentec-tasks-admin-web && npx serve /tmp/pages
+```
+
+The repository ships its own `pnpm-lock.yaml` so the workflow can run
+`pnpm install --frozen-lockfile`. Inside the shared workspace pnpm reads only
+the root lockfile and ignores this one; regenerate it after a dependency
+change with `pnpm install --lockfile-only --ignore-workspace`. The same section
+lives in [`sentec-tasks-staff-web`](../sentec-tasks-staff-web#deploying-to-github-pages).
+
 ## Design system
 
 Copied from the staff workspace so the apps stay one product: Nuxt 4 SPA
