@@ -154,6 +154,16 @@ NUXT_APP_BASE_URL=/sentec-tasks-admin-web/ pnpm generate
 # mkdir -p /tmp/pages && ln -sfn "$PWD/.output/public" /tmp/pages/sentec-tasks-admin-web && npx serve /tmp/pages
 ```
 
+Deploying from a branch other than the repository's default needs one more
+thing: the `github-pages` environment only admits the branches listed in its
+deployment-branch policy (Settings → Environments → github-pages), and GitHub
+seeds that list with the default branch at the time Pages was enabled. A deploy
+from an unlisted branch fails at the deploy step with "not allowed to deploy to
+github-pages due to environment protection rules" even though the build passed.
+Add the branch there (or via
+`gh api -X POST repos/<owner>/<repo>/environments/github-pages/deployment-branch-policies -f name=<branch> -f type=branch`)
+and re-run the failed job.
+
 The repository ships its own `pnpm-lock.yaml` so the workflow can run
 `pnpm install --frozen-lockfile`. Inside the shared workspace pnpm reads only
 the root lockfile and ignores this one; regenerate it after a dependency
