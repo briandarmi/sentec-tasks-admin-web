@@ -1,5 +1,6 @@
 import { useSession } from '~/composables/useSession'
 import { useConsoleAccess } from '~/composables/useConsoleAccess'
+import { safeRedirectPath } from '~/utils/sign-in'
 
 /**
  * Auth and role gate.
@@ -52,13 +53,24 @@ export default defineNuxtRouteMiddleware(async (to) => {
   }
 
   if (to.path === '/login') {
-    return session.isAuthenticated.value ? navigateTo('/') : undefined
+    if (!session.isAuthenticated.value) return
+    // A redirect-based sign-in (Google, emailed link) lands back here with the
+    // deep link still in the query; honour it exactly as the form does.
+    return navigateTo(safeRedirectPath(to.query.redirect) ?? (session.isOperator.value ? '/platform' : '/'), { replace: true })
   }
 
   if (!session.isAuthenticated.value) {
     // Come back here after signing in rather than dumping the user on the
     // overview — a deep link is usually why they were sent to /login.
-    return navigateTo({ path: '/login', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } })
+    // A failed redirect-based sign-in reports on the allow-list's fallback
+    // origin (this app's root), so its ?authError= is carried across rather
+    // than buried inside the redirect target.
+    const { authError, ...rest } = to.query
+    const query: Record<string, string> = {}
+    if (typeof authError === 'string') query.authError = authError
+    const target = useRouter().resolve({ path: to.path, query: rest }).fullPath
+    if (target !== '/') query.redirect = target
+    return navigateTo({ path: '/login', query })
   }
 
   /**

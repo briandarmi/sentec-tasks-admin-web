@@ -17,10 +17,13 @@ builds.
 The app runs against the in-browser mock in
 [`app/utils/clientFakeApi.ts`](app/utils/clientFakeApi.ts), which since
 2026-09-02 is **wire-faithful to `sentec-tasks-api`** (Go + PostgreSQL, pinned
-at commit `0c8e1bd`): exact paths, methods, envelope, UUIDs, `X-Hotel-Id`
-scoping, error codes and message literals. See the staff workspace's README
-for the full fidelity story and the seams a browser mock cannot cross —
-this file covers what is admin-specific.
+at `master` commit `c3f52ad` plus the passwordless sign-in branch
+`feat/google-and-magic-link-auth` @ `48756a3`, re-aligned 2026-09-16): exact
+paths, methods, envelope, UUIDs, `X-Hotel-Id` scoping, error codes and message
+literals. See the staff workspace's README for the full fidelity story, the
+seams a browser mock cannot cross, and the auth model (password, Google
+Sign-In and the emailed link all mint one `st_session` cookie) — this file
+covers what is admin-specific.
 
 ## Getting started
 
@@ -39,7 +42,11 @@ The login screen offers exactly the accounts the console admits. `staff` and
 `leader` accounts are refused at the door — the filter reads the role
 `demoLogins()` reports, and
 [`tests/console-access.spec.ts`](tests/console-access.spec.ts) pins that proxy
-to the real admission rule for every seeded account.
+to the real admission rule for every seeded account. The same rule runs after
+**every** sign-in path — password, Google, emailed link — since none of them
+changes who the account is; the mock's Google account chooser lists the
+admissible demo accounts plus the two identities that exercise the callback's
+refusals (`no_account`, `email_unverified`).
 
 **An operator reaches no property screen.** Their account carries an empty
 hotels claim, so every hotel-scoped route refuses them — that is the real
@@ -49,7 +56,7 @@ partners and the source-app registry. Property configuration belongs to that
 property's own admin.
 
 ```bash
-pnpm test          # 108 tests over this repo's own copy of everything
+pnpm test          # 132 tests over this repo's own copy of everything
 pnpm typecheck     # vue-tsc across app + templates
 pnpm build         # static SPA into .output/public
 pnpm check:shared  # byte-compares the duplicated files with the staff app
@@ -57,11 +64,11 @@ pnpm check:shared  # byte-compares the duplicated files with the staff app
 
 ## Kept in step by hand
 
-Eight files are **duplicated** between this app and the staff workspace
+Nine files are **duplicated** between this app and the staff workspace
 (`useSession`, `useTasksApi`, `useCaps`, `useTheme`, `session.client.ts`,
-`clientFakeApi.ts`, `task-ui.ts`, `select-empty.ts`), plus the five spec files
-`mock-api` / `admin-config` / `staff-flows` / `api-fidelity` / `task-ui` —
-each repo tests the copy it ships. `app/composables/useConsoleAccess.ts` is
+`clientFakeApi.ts`, `task-ui.ts`, `select-empty.ts`, `sign-in.ts`), plus the
+six spec files `mock-api` / `admin-config` / `staff-flows` / `api-fidelity` /
+`sign-in` / `task-ui` — each repo tests the copy it ships. `app/composables/useConsoleAccess.ts` is
 **not** in that set: it is this app's own rule and has no counterpart.
 `pnpm check:shared` fails when the copies differ and skips in a standalone
 clone.
