@@ -64,11 +64,12 @@ pnpm check:shared  # byte-compares the duplicated files with the staff app
 
 ## Kept in step by hand
 
-Nine files are **duplicated** between this app and the staff workspace
+Ten files are **duplicated** between this app and the staff workspace
 (`useSession`, `useTasksApi`, `useCaps`, `useTheme`, `session.client.ts`,
-`clientFakeApi.ts`, `task-ui.ts`, `select-empty.ts`, `sign-in.ts`), plus the
-six spec files `mock-api` / `admin-config` / `staff-flows` / `api-fidelity` /
-`sign-in` / `task-ui` — each repo tests the copy it ships. `app/composables/useConsoleAccess.ts` is
+`clientFakeApi.ts`, `task-ui.ts`, `select-empty.ts`, `sign-in.ts`,
+`session-cookie.ts`), plus the seven spec files `mock-api` / `admin-config` /
+`staff-flows` / `api-fidelity` / `sign-in` / `session-cookie` / `task-ui` —
+each repo tests the copy it ships. `app/composables/useConsoleAccess.ts` is
 **not** in that set: it is this app's own rule and has no counterpart.
 `pnpm check:shared` fails when the copies differ and skips in a standalone
 clone.
@@ -132,6 +133,66 @@ sidebar's per-group `visible` flag, not in the URL.
   its audit stream in logs, not behind HTTP.
 - **The group report is `GET /v1/groups/{id}/stats`**: authorized for operators
   and grant holders only, all seven statuses zero-filled per property.
+
+## Where the session lives: a cookie, not Web Storage (2026-09-17)
+
+The credential is in a cookie written by the app, through
+[`app/utils/session-cookie.ts`](app/utils/session-cookie.ts) (identical in all
+four frontends): `SameSite=Strict`, `Secure` when served over https, `Path`
+scoped to this app's base URL so a sibling app on the same origin cannot read
+it by name, and a `Max-Age` the browser enforces even if the app is never
+opened again. Only the secret goes in the cookie — a cookie is capped at 4 KB
+and the helper throws rather than truncate a credential.
+
+What this does not buy, said plainly: a cookie written by script cannot be
+`HttpOnly`, so a script injected into the page could read it exactly as it
+could read localStorage. That protection needs the API to set the cookie,
+which these static, cross-origin builds cannot use. See the helper's header.
+
+Here: cookie `sentec-tasks-session` holds the session id the mock stands in
+for the API's httpOnly `st_session` with, `Max-Age=43200` like the real one.
+It replaced sessionStorage: a cookie is per browser rather than per tab, so a
+closed tab no longer ends the shift — the 12-hour clock does, on both the
+cookie and the mock's session row. A leftover sessionStorage id is adopted
+once and removed. Nothing else is stored; identity and the CSRF token come
+from `GET /v1/auth/session` on boot, as before.
+
+## Session expiry: automatic sign-out (2026-09-17)
+
+A session the API no longer accepts is dropped on this device and the user is
+sent to `/login`, instead of every screen failing on the same 401 while the
+sidebar still shows them signed in.
+
+Two triggers, one landing:
+
+- **A 401 from any request** (`useSession.request`). The `st_session` cookie
+  is past its 12-hour window, was revoked by a sign-out elsewhere, or is
+  unknown after a server restart. `isSessionInvalidError` in
+  [`app/utils/sign-in.ts`](app/utils/sign-in.ts) matches status 401 or code
+  `UNAUTHORIZED`. A **403 is not a trigger** — that is a live session lacking
+  a permission. The logout call itself is exempt: a 401 there means "already
+  gone". Teardown + navigation is single-flight, so a screen's parallel loads
+  push `/login` once, and the failing request still throws so the calling
+  screen stops its own flow.
+- **Boot found a stored session id the server no longer knows**
+  (`restore()` → `recover()` fails). The plugin already forgot the id; it now
+  also sets `expiredOnRestore`, which the auth middleware reads once to add
+  `reason=expired` to the redirect it was already making.
+
+What happens: `expireSession()` runs the same local teardown as `logout`
+(identity, session id, every cached payload, the selected property) **without**
+`POST /v1/auth/logout`, then `navigateTo('/login?reason=expired&redirect=<page>')`.
+The login screen shows the calm "Signed out — your session has ended" notice
+(`sessionEndedNotice`; only `expired` is known, the raw value is never
+rendered) and, after signing in, returns to `redirect` via the existing
+`safeRedirectPath`. There is no client-side expiry pre-check: the cookie is
+httpOnly and carries nothing readable, unlike the Butler apps' JWT `exp`.
+
+`useSession.ts`, `sign-in.ts` and `tests/sign-in.spec.ts` are shared with the
+sibling app byte-for-byte (`pnpm run check:shared`). Tested:
+`tests/sign-in.spec.ts` pins `isSessionInvalidError` and `sessionEndedNotice`;
+the redirect itself needs the Nuxt runtime and was checked by typecheck and
+build only.
 
 ## Deploying to GitHub Pages
 
