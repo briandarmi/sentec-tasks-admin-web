@@ -369,7 +369,9 @@ onMounted(load)
               <SelectTrigger class="w-full"><SelectValue placeholder="Pick a person" /></SelectTrigger>
               <SelectContent>
                 <SelectItem v-for="member in grantHotelStaff" :key="member.id" :value="member.id">
-                  {{ member.name }} · {{ member.role }}
+                  <!-- Roles are per property: GET /v1/staff narrowed each row's
+                       memberships to the picked hotel, so this is their role THERE. -->
+                  {{ member.name }} · {{ member.memberships.find(x => x.hotelRef === formGrantHotel)?.role ?? 'staff' }}
                 </SelectItem>
               </SelectContent>
             </Select>

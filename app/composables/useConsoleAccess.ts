@@ -22,12 +22,17 @@ import type { Staff } from '~/utils/clientFakeApi'
  */
 
 /** The part of a session these rules read. */
-type Reach = Pick<Staff, 'role' | 'isOperator' | 'hotels'>
+type Reach = Pick<Staff, 'isOperator' | 'memberships'>
 
-/** Hotels whose configuration an account may reach: admins with a claim only. */
+/**
+ * Hotels whose configuration an account may reach: the memberships that
+ * carry role admin. Roles are per property (feat/projects), so an account can
+ * be admin at one hotel and plain staff at the next; a hotel reached only
+ * through a group grant has no membership and is not administrable here.
+ */
 export function adminReach(user: Reach): string[] {
   if (user.isOperator) return [] // hotel-scoped routes refuse operators
-  return user.role === 'admin' ? user.hotels : []
+  return user.memberships.filter(m => m.role === 'admin').map(m => m.hotelRef)
 }
 
 /**
@@ -43,9 +48,8 @@ export function useConsoleAccess() {
 
   const isOperator = computed(() => session.isOperator.value)
   const reach = computed<Reach>(() => ({
-    role: session.role.value ?? 'staff',
     isOperator: isOperator.value,
-    hotels: session.staff.value?.hotels ?? [],
+    memberships: session.memberships.value,
   }))
 
   const adminHotels = computed(() => adminReach(reach.value))
@@ -56,7 +60,8 @@ export function useConsoleAccess() {
 
 /**
  * Whether a role/operator pair names someone this console admits — the shape
- * `demoLogins()` reports. `tests/console-access.spec.ts` pins this proxy to the
+ * `demoLogins()` reports (its `role` is the account's FIRST membership; the
+ * demo accounts hold one role each, so the proxy stays exact). `tests/console-access.spec.ts` pins this proxy to the
  * real `admitsToConsole` answer for every seeded account, so a seed that makes
  * them disagree fails there rather than quietly hiding a working account.
  *

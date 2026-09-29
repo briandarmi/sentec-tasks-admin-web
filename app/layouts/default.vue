@@ -4,6 +4,7 @@ import {
   Building2Icon,
   CalendarClockIcon,
   GaugeIcon,
+  HotelIcon,
   LanguagesIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -11,6 +12,7 @@ import {
   MapPinnedIcon,
   NetworkIcon,
   PlugZapIcon,
+  RepeatIcon,
   ShapesIcon,
   SquareKanbanIcon,
   TimerIcon,
@@ -41,7 +43,10 @@ interface NavItem { to: string, label: string, icon: unknown }
 interface NavGroup { label: string, items: NavItem[], visible: boolean }
 
 // The property screens are grouped Work / Organisation / Rules — what staff
-// see, who does it, and how it is targeted — so thirteen entries stay scannable.
+// see, who does it, and how it is targeted — so fourteen entries stay scannable.
+// Every property screen is admin AT THE SELECTED HOTEL (roles are per
+// property), so the whole group follows `canConfigureProperty` and the page
+// slot below is re-keyed on the hotel: a switch reloads the screen.
 const navGroups = computed<NavGroup[]>(() => [
   {
     label: 'Work',
@@ -57,7 +62,9 @@ const navGroups = computed<NavGroup[]>(() => [
     label: 'Organisation',
     visible: caps.canConfigureProperty.value,
     items: [
+      { to: '/property', label: 'Property', icon: HotelIcon },
       { to: '/departments', label: 'Departments', icon: Building2Icon },
+      // Roster import lives on the Staff screen.
       { to: '/staff', label: 'Staff', icon: UsersIcon },
       { to: '/teams', label: 'Teams', icon: UsersRoundIcon },
       { to: '/locations', label: 'Locations', icon: MapPinIcon },
@@ -70,6 +77,7 @@ const navGroups = computed<NavGroup[]>(() => [
       { to: '/routing', label: 'Routing Rules', icon: MapPinnedIcon },
       { to: '/slas', label: 'SLAs', icon: TimerIcon },
       { to: '/operating-schedules', label: 'Operating Schedules', icon: CalendarClockIcon },
+      { to: '/task-templates', label: 'Task Templates', icon: RepeatIcon },
       { to: '/terminology', label: 'Terminology', icon: LanguagesIcon },
     ],
   },

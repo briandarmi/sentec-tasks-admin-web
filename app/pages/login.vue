@@ -13,6 +13,12 @@ const route = useRoute()
 const session = useSession()
 const access = useConsoleAccess()
 const runtimeConfig = useRuntimeConfig()
+/**
+ * Against a real API (NUXT_PUBLIC_API_BASE set) the mock-only furniture goes:
+ * no demo-account chips, no demo inbox, no stand-in Google account chooser —
+ * the Google URL is a real one and the browser is simply sent there.
+ */
+const isLive = session.isLive
 
 /**
  * Three ways in, all ending in the same st_session cookie: Google Sign-In,
@@ -47,6 +53,7 @@ const endedNotice = computed(() => sessionEndedNotice(route.query.reason))
  */
 const demos = ref<ReturnType<typeof demoLogins>>([])
 onMounted(() => {
+  if (isLive) return
   demos.value = demoLogins().filter(demo => admitsRole(demo.role, demo.isOperator))
 })
 
@@ -116,7 +123,8 @@ async function sendLink() {
     }
     // 202 says "acted on", not "that account exists" — the copy below keeps it that way.
     linkRequestedFor.value = email.value.trim().toLowerCase()
-    demoInbox.value = demoOutbox(linkRequestedFor.value)
+    // Live, the link is in a real mailbox (or the API's log); nothing to show here.
+    demoInbox.value = isLive ? [] : demoOutbox(linkRequestedFor.value)
   }
   finally {
     busy.value = ''
@@ -157,7 +165,7 @@ async function continueWithGoogle() {
       errorMessage.value = googleFailure(result.code, result.message)
       return
     }
-    const consent = demoGoogleConsent(result.url)
+    const consent = isLive ? null : demoGoogleConsent(result.url)
     if (!consent) {
       // The real thing: a full-page navigation, never a fetch.
       window.location.assign(result.url)
@@ -330,7 +338,7 @@ async function followApiLink(url: string) {
         </form>
       </CardContent>
 
-      <CardFooter>
+      <CardFooter v-if="!isLive && demos.length">
         <div class="w-full space-y-2 rounded-lg border bg-muted/50 p-3">
           <p class="text-xs font-semibold text-muted-foreground">Demo accounts</p>
           <div class="grid grid-cols-2 gap-2">
@@ -352,7 +360,7 @@ async function followApiLink(url: string) {
     </Card>
 
     <!-- Mock-only: Google's account chooser. A real deployment navigates to Google instead. -->
-    <Dialog :open="googleConsent !== null" @update:open="open => { if (!open) chooseGoogleIdentity('cancel') }">
+    <Dialog v-if="!isLive" :open="googleConsent !== null" @update:open="open => { if (!open) chooseGoogleIdentity('cancel') }">
       <DialogContent class="max-w-sm">
         <DialogHeader>
           <DialogTitle>Choose an account</DialogTitle>

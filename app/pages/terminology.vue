@@ -3,8 +3,11 @@ import { onMounted, ref } from 'vue'
 import { LanguagesIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
 
-/** The vertical profile's four product terms — the keys the API merges over. */
-const TERMINOLOGY_KEYS = ['requester', 'visit', 'location', 'department'] as const
+/**
+ * The vertical profile's product terms — the keys the API merges over.
+ * `project` joined with feat/projects; there is no `projects` key.
+ */
+const TERMINOLOGY_KEYS = ['requester', 'visit', 'location', 'department', 'project'] as const
 type TerminologyKey = typeof TERMINOLOGY_KEYS[number]
 
 const api = useTasksApi()
@@ -14,6 +17,7 @@ const TERM_LABELS: Record<TerminologyKey, string> = {
   visit: 'Visit field',
   location: 'Location field',
   department: 'Department field',
+  project: 'Project field',
 }
 
 const TERM_HINTS: Record<TerminologyKey, string> = {
@@ -21,10 +25,11 @@ const TERM_HINTS: Record<TerminologyKey, string> = {
   visit: 'The stay or appointment a task belongs to.',
   location: 'Where the work is — "Room", "Unit", "Ward"…',
   department: 'The group work is routed to.',
+  project: 'A bundle of related tasks with its own manager and members — "Programme", "Job", "Case"…',
 }
 
 function emptyTerms(): Record<TerminologyKey, string> {
-  return { requester: '', visit: '', location: '', department: '' }
+  return { requester: '', visit: '', location: '', department: '', project: '' }
 }
 
 const isLoading = ref(false)
@@ -100,7 +105,7 @@ onMounted(load)
       </AlertDescription>
     </Alert>
 
-    <TableSkeleton v-else-if="isLoading" :rows="4" :columns="2" />
+    <TableSkeleton v-else-if="isLoading" :rows="5" :columns="2" />
 
     <Card v-else class="rounded-xl">
       <CardContent class="space-y-5">

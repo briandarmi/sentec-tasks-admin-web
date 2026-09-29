@@ -1,9 +1,10 @@
 # Sentec Tasks — Admin Web
 
 The **admin and operator console** for [Sentec Tasks](../docs/sentec-tasks.md):
-property configuration (departments, staff, teams, locations, SLAs, routing,
-operating schedules, terminology, board columns, catalog and its categories)
-and the Sentinel Tech platform screens (properties, groups and access,
+property configuration (the property's time zone, departments, staff and the
+roster import, teams, locations, SLAs, routing, operating schedules, task
+templates, terminology, board columns, catalog and its categories) and the
+Sentinel Tech platform screens (properties, groups and access,
 integration partners, the source-app registry), plus the cross-tenant group
 report.
 
@@ -18,7 +19,9 @@ The app runs against the in-browser mock in
 [`app/utils/clientFakeApi.ts`](app/utils/clientFakeApi.ts), which since
 2026-09-02 is **wire-faithful to `sentec-tasks-api`** (Go + PostgreSQL, pinned
 at `master` commit `c3f52ad` plus the passwordless sign-in branch
-`feat/google-and-magic-link-auth` @ `48756a3`, re-aligned 2026-09-16): exact
+`feat/google-and-magic-link-auth` @ `48756a3`, re-aligned 2026-09-16, and the
+`feat/projects` branch @ `fe5e99d`, reconciled 2026-09-29 against its Go —
+per-hotel roles, roster import, task templates, hotel time zone): exact
 paths, methods, envelope, UUIDs, `X-Hotel-Id` scoping, error codes and message
 literals. See the staff workspace's README for the full fidelity story, the
 seams a browser mock cannot cross, and the auth model (password, Google
@@ -55,8 +58,38 @@ first admin (one-time temporary password, shown once), manage groups, grants,
 partners and the source-app registry. Property configuration belongs to that
 property's own admin.
 
+### Against the dev API
+
+The same build can run against the dev copy of `sentec-tasks-api`
+(`feat/projects`) on AWS Lambda instead of the mock:
+
 ```bash
-pnpm test          # 132 tests over this repo's own copy of everything
+cp .env.example .env      # NUXT_DEV_API_PROXY + NUXT_PUBLIC_API_BASE, already filled in
+pnpm dev                  # then open http://localhost:3001
+```
+
+`nuxt dev` forwards `/v1/*` to the Function URL (`nitro.devProxy`), so the
+browser sees one origin and the API's `SameSite=Lax` `st_session` cookie is
+stored on `localhost`. What to know:
+
+- **Browse to `localhost`, never `127.0.0.1`.** They are different sites: the
+  cookie will not match and the origin is not on the API's allow-list.
+  `NUXT_PUBLIC_API_BASE` must be this app's own dev server, never the Function
+  URL itself.
+- **Google and magic-link sign-in come back through the STAFF dev server on
+  port 3000** (`GOOGLE_REDIRECT_URL` and `API_BASE_URL` on the Lambda point
+  there), so keep `sentec-tasks-staff-web` running on 3000 for those flows.
+  Cookies on `localhost` are shared across ports, so this app on 3001 picks
+  the session up afterwards. **Password login needs only this app.**
+- **`MAIL_DEV_CONSOLE=true` on the Lambda** means magic links are not
+  emailed — they land in the Lambda's CloudWatch log. Use password login if
+  you cannot read that log.
+- Live, the login screen drops the mock-only furniture (demo-account chips,
+  demo inbox, the stand-in Google account chooser); the flows themselves are
+  the same.
+
+```bash
+pnpm test          # 159 tests over this repo's own copy of everything
 pnpm typecheck     # vue-tsc across app + templates
 pnpm build         # static SPA into .output/public
 pnpm check:shared  # byte-compares the duplicated files with the staff app
@@ -64,8 +97,8 @@ pnpm check:shared  # byte-compares the duplicated files with the staff app
 
 ## Kept in step by hand
 
-Ten files are **duplicated** between this app and the staff workspace
-(`useSession`, `useTasksApi`, `useCaps`, `useTheme`, `session.client.ts`,
+Eleven files are **duplicated** between this app and the staff workspace
+(`useSession`, `useTasksApi`, `useCaps`, `useTheme`, `useTenant`, `session.client.ts`,
 `clientFakeApi.ts`, `task-ui.ts`, `select-empty.ts`, `sign-in.ts`,
 `session-cookie.ts`), plus the seven spec files `mock-api` / `admin-config` /
 `staff-flows` / `api-fidelity` / `sign-in` / `session-cookie` / `task-ui` —
@@ -86,13 +119,15 @@ sidebar's per-group `visible` flag, not in the URL.
 | `/board`                | Board Columns        | `admin`    |
 | `/catalog`              | Catalog              | `admin`    |
 | `/categories`           | Categories           | `admin`    |
+| `/property`             | Property (time zone) | `admin`    |
 | `/departments`          | Departments          | `admin`    |
-| `/staff`                | Staff                | `admin`    |
+| `/staff`                | Staff + roster import | `admin`   |
 | `/teams`                | Teams                | `admin`    |
 | `/locations`            | Locations & types    | `admin`    |
 | `/routing`              | Routing Rules        | `admin`    |
 | `/slas`                 | SLAs                 | `admin`    |
 | `/operating-schedules`  | Operating Schedules  | `admin`    |
+| `/task-templates`       | Task Templates       | `admin`    |
 | `/terminology`          | Terminology          | `admin`    |
 | `/group-report`         | Group Report         | grant or operator |
 | `/platform`             | Operator Home        | `operator` |
@@ -116,10 +151,70 @@ sidebar's per-group `visible` flag, not in the URL.
   at most one of item / category / location type / priority (none = the
   catch-all); repeating a matcher updates that rule in place. No priority
   numbers, no id in the request; deletion is by id.
+- **Roles are per property** (`feat/projects`). The Staff payload carries
+  `properties` (every hotel the person can reach, grants included) and
+  `memberships` (`{hotelRef, role, hotelDepartmentId, createTask}`); there is
+  no account-wide `role`, `hotels` or `createTask` any more, on the wire or in
+  the JWT. The session, the caps and `adminReach` all read the membership at
+  the **selected** hotel, so the switcher changes what an account may do, and
+  the page slot is re-keyed on the hotel so a screen never keeps the previous
+  hotel's data. A hotel reached only through a group grant has no membership:
+  the mock's documented assumption is that the person is plain staff there
+  (the regional admin's reach is therefore one hotel, not two).
+- **The Staff screen is one hotel's view.** `GET /v1/staff` narrows each row's
+  `memberships` to the listed hotel; the table reads role, department and
+  create-task from that one membership and hints "also at N other properties"
+  from `properties`. In Edit, role / department / create-task PATCH **this**
+  hotel's membership (the active hotel rides in `X-Hotel-Id`); name and
+  isActive are account-wide, and the dialog says so.
 - **Staff creation mints `staff` or `leader` only** — admin is a separate
   PATCH, and the add form can queue that promotion as a second request that can
-  fail alone (the screen says so when it does). Email and password never change
+  fail alone (the screen says so when it does). **An email that already exists
+  anywhere is attached, not created**: the API answers 200 instead of 201, the
+  account is given a membership at the listed hotels, and name and password
+  are ignored — the screen says which happened. The two new 409s ("already
+  belongs to one of the listed hotels", "account is deactivated") are shown
+  with the API's own words plus what to do. Email and password never change
   through this console. Deactivation is a PATCH; nothing is deleted.
+- **Roster import is `POST /v1/staff/import`** (multipart, `.csv` or `.xlsx`;
+  columns `email` + `name` required, `role` staff|leader, `department` by
+  name, `createTask` optional; 1,000 rows / 32 columns / 1 MB). The hotel
+  comes from the header, never from the file. It always answers 200 once the
+  file parses, one row per line with an outcome: **created** (new account
+  with no password — they sign in by magic link or Google, nothing is
+  emailed), **updated** (existing member here; admins are never demoted),
+  **granted** (a person from another property given access here), or
+  **failed** with the reason. Templates come from
+  `GET /v1/staff/import/template?format=csv|xlsx` (a raw file; the `.xlsx`
+  has a department drop-down). The mock reads `.csv` only and has no
+  workbook writer — a `.xlsx` upload is its 400 "unreadable file" and the
+  `.xlsx` template its 422 — where the real API supports both, so the UI
+  offers both.
+- **Task templates** (`/v1/task-templates`) hold task content plus an
+  optional schedule (`DAILY` / `WEEKLY` with weekdays 0 = Sunday / `MONTHLY`
+  with a day 1–28, at `timeMinutes` past hotel-local midnight, optional
+  `startsOn` / `endsOn`). The API's worker creates the runs. Two scopes live
+  side by side — **shared** (admin-made) and **personal** (staff's own
+  "Repeat" tasks) — and an admin may edit, pause and archive either. The wire
+  model carries no scope field, so the page lists `scope=shared` and
+  `scope=personal` separately and tags them, rather than reading `scope=all`.
+  `PUT` is a full replace, so Pause/Resume re-sends the row with `isActive`
+  flipped; a paused save skips content validation, an active one can 422
+  ("content does not resolve") and a duplicate name 409s — both shown
+  verbatim. `DELETE` archives; tasks already made stay. When the owner loses
+  access or the create-task permission, the worker pauses the template and
+  fills `lastError`, which the table shows in red.
+- **The property's time zone is `PATCH /v1/tenant`** (admin at the hotel;
+  `GET /v1/tenant` for any actor). Every clock time in both consoles is shown
+  in it (`useTenant` points the time helpers at it), operating schedules are
+  read in it, and every active template's next run moves with it, while
+  existing tasks keep their due dates — so the Property screen confirms
+  before saving and shows the zone's live local time as a hint. A curated
+  list covers the Indonesian zones and the region; anything else is typed as
+  an IANA name and checked against the browser's zone database first.
+- **Terminology has five keys**: `requester`, `visit`, `location`,
+  `department` and, since `feat/projects`, `project` (default "Project").
+  There is no `projects` key.
 - **Partners have no rotate-secret route.** The secret is returned exactly once
   at registration; revocation IS deactivation (checked per request, no
   caching), and a new secret means a new registration.
