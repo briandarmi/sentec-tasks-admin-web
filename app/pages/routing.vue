@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { MapPinnedIcon, PencilIcon, PlusIcon, Trash2Icon, TriangleAlertIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { Category, CatalogItem, HotelDepartment, LocationType, RoutingRule, Sla, TaskPriority } from '~/utils/clientFakeApi'
+import type { Category, CatalogItem, EscalationPolicy, HotelDepartment, LocationType, RoutingRule, Sla, TaskPriority } from '~/utils/clientFakeApi'
 import { TASK_PRIORITIES, priorityMeta } from '~/utils/task-ui'
 
 /**
@@ -18,6 +18,7 @@ const api = useTasksApi()
 const rules = ref<RoutingRule[]>([])
 const departments = ref<HotelDepartment[]>([])
 const slas = ref<Sla[]>([])
+const policies = ref<EscalationPolicy[]>([])
 const items = ref<CatalogItem[]>([])
 const categories = ref<Category[]>([])
 const locationTypes = ref<LocationType[]>([])
@@ -34,13 +35,23 @@ const formMatchKind = ref<'item' | 'category' | 'locationType' | 'priority' | 'c
 const formMatchValue = ref('')
 const formDepartmentId = ref('')
 const formSlaId = ref('')
+/** '' = none of its own: the SLA's policy, else the property default. */
+const formPolicyId = ref('')
 const formRemark = ref('')
 
 const TIER_LABELS: Record<number, string> = { 4: 'Item', 3: 'Category', 2: 'Location type', 1: 'Priority', 0: 'Catch-all' }
 
+/** Only an ACTIVE policy may be linked; a link that went inactive since stays visible (marked) so the refusal makes sense. */
+const policyOptions = computed(() => {
+  const active = policies.value.filter(p => p.isActive)
+  const linked = policies.value.find(p => p.id === formPolicyId.value)
+  return linked && !linked.isActive ? [...active, linked] : active
+})
+
 const nameById = computed(() => ({
   department: new Map(departments.value.map(d => [d.id, d.departmentName])),
   sla: new Map(slas.value.map(s => [s.id, s.name])),
+  policy: new Map(policies.value.map(p => [p.id, p.name])),
   item: new Map(items.value.map(i => [i.id, i.name])),
   category: new Map(categories.value.map(c => [c.id, c.name])),
   locationType: new Map(locationTypes.value.map(t => [t.id, t.name])),
@@ -121,17 +132,19 @@ async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const [loadedRules, loadedDepts, loadedSlas, loadedItems, loadedCategories, loadedLocationTypes] = await Promise.all([
+    const [loadedRules, loadedDepts, loadedSlas, loadedItems, loadedCategories, loadedLocationTypes, loadedPolicies] = await Promise.all([
       api.listRoutingRules(),
       api.listHotelDepartments(),
       api.listSlas(),
       api.listCatalogItems(),
       api.listCategories(),
       api.listLocationTypes(),
+      api.listEscalationPolicies(),
     ])
     rules.value = loadedRules
     departments.value = loadedDepts
     slas.value = loadedSlas
+    policies.value = loadedPolicies
     items.value = loadedItems
     categories.value = loadedCategories
     locationTypes.value = loadedLocationTypes
@@ -150,6 +163,7 @@ function openCreate() {
   formMatchValue.value = ''
   formDepartmentId.value = departments.value[0]?.id ?? ''
   formSlaId.value = slas.value.find(s => s.isDefault)?.id ?? slas.value[0]?.id ?? ''
+  formPolicyId.value = ''
   formRemark.value = ''
   formError.value = ''
   dialogOpen.value = true
@@ -161,6 +175,7 @@ function openEdit(rule: RoutingRule) {
   formMatchValue.value = rule.itemRef ?? rule.categoryId ?? rule.locationTypeId ?? rule.priority ?? ''
   formDepartmentId.value = rule.hotelDepartmentId
   formSlaId.value = rule.slaId
+  formPolicyId.value = rule.escalationPolicyId ?? ''
   formRemark.value = rule.remark ?? ''
   formError.value = ''
   dialogOpen.value = true
@@ -181,6 +196,8 @@ async function save() {
       departmentId: formDepartmentId.value,
       slaId: formSlaId.value,
       remark: formRemark.value.trim() || null,
+      // Always sent: the key ABSENT would keep the stored link; null clears it.
+      escalationPolicyId: formPolicyId.value || null,
     })
     await load()
     dialogOpen.value = false
@@ -251,7 +268,7 @@ onMounted(load)
       </CardContent>
     </Card>
 
-    <TableSkeleton v-if="isLoading && rules.length === 0" :rows="5" :columns="6" />
+    <TableSkeleton v-if="isLoading && rules.length === 0" :rows="5" :columns="7" />
 
     <Card v-else class="overflow-hidden rounded-xl pt-0">
       <CardContent class="p-0">
@@ -263,6 +280,7 @@ onMounted(load)
                 <TableHead>Matches</TableHead>
                 <TableHead>Department</TableHead>
                 <TableHead>SLA</TableHead>
+                <TableHead>Escalation</TableHead>
                 <TableHead>Note</TableHead>
                 <TableHead class="text-right" />
               </TableRow>
@@ -275,6 +293,7 @@ onMounted(load)
                 <TableCell class="text-foreground">{{ matchLabel(rule).value }}</TableCell>
                 <TableCell class="text-foreground">{{ nameById.department.get(rule.hotelDepartmentId) ?? '—' }}</TableCell>
                 <TableCell class="text-foreground">{{ nameById.sla.get(rule.slaId) ?? '—' }}</TableCell>
+                <TableCell class="text-foreground">{{ rule.escalationPolicyId ? (nameById.policy.get(rule.escalationPolicyId) ?? rule.escalationPolicyId) : '—' }}</TableCell>
                 <TableCell class="max-w-56 truncate text-muted-foreground">{{ rule.remark ?? '—' }}</TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
@@ -296,7 +315,7 @@ onMounted(load)
                 </TableCell>
               </TableRow>
               <TableRow v-if="!isLoading && rules.length === 0">
-                <TableCell colspan="6" class="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colspan="7" class="py-10 text-center text-sm text-muted-foreground">
                   No rules yet — every task will fall back to the default SLA with no department.
                 </TableCell>
               </TableRow>
@@ -375,6 +394,22 @@ onMounted(load)
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div class="space-y-2">
+            <Label>Escalation policy</Label>
+            <Select :model-value="toSelectValue(formPolicyId)" @update:model-value="value => formPolicyId = fromSelectValue(value)">
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="None — follow the SLA" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem :value="SELECT_EMPTY">None — follow the SLA</SelectItem>
+                <SelectItem v-for="policy in policyOptions" :key="policy.id" :value="policy.id">
+                  {{ policy.name }}{{ policy.isActive ? '' : ' (inactive)' }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-xs text-muted-foreground">Wins over the SLA's policy for the tasks this rule routes.</p>
           </div>
 
           <div class="space-y-2">

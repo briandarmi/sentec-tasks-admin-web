@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { DownloadIcon, FileUpIcon, PencilIcon, PlusIcon, UsersIcon } from '@lucide/vue'
+import { CloudDownloadIcon, DownloadIcon, FileUpIcon, PencilIcon, PlusIcon, SearchIcon, TriangleAlertIcon, UserRoundMinusIcon, UsersIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
 import { useSession } from '~/composables/useSession'
-import type { ApiError, HotelDepartment, HotelMembership, Staff, StaffImportRowResult } from '~/utils/clientFakeApi'
+import type { ApiError, EmsAddResult, EmsEmployee, HotelDepartment, HotelMembership, Staff, StaffImportRowResult } from '~/utils/clientFakeApi'
 
 /**
  * Staff at this property. Roles are PER PROPERTY (feat/projects): a person's
@@ -16,6 +16,14 @@ import type { ApiError, HotelDepartment, HotelMembership, Staff, StaffImportRowR
  * promotion). An email that already exists anywhere is ATTACHED to this
  * property (HTTP 200) rather than created; name and password are then
  * ignored. Deactivation is a PATCH too; nothing is ever deleted.
+ *
+ * feat/ems-staff-sync: at an EMS-mapped property, people can be added from
+ * the Sentec EMS directory, and EMS then OWNS their name, email and
+ * membership here — an admin's edit lasts until the next EMS push. A
+ * membership EMS could not fully apply (it named a department this property
+ * lacks) carries a `syncIssue` the admin resolves by picking a department.
+ * Removing a person from one property is DELETE on their membership; the
+ * account and their other properties are untouched.
  */
 const api = useTasksApi()
 const session = useSession()
@@ -26,9 +34,13 @@ const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
 const formError = ref('')
+/** The admin's to-do filter: only members whose membership here carries a sync issue. */
+const needsAttentionOnly = ref(false)
 
 const dialogOpen = ref(false)
 const editId = ref<string | undefined>()
+/** Editing an EMS-linked account: the name field gets the "EMS owns this" hint. */
+const editEmsLinked = ref(false)
 const formEmail = ref('')
 const formName = ref('')
 const formPassword = ref('')
@@ -57,17 +69,59 @@ function otherPropertyCount(member: Staff) {
   return Math.max(0, member.properties.length - 1)
 }
 
+/** The EMS department name Tasks could not match here, if the membership carries one. */
+function syncIssueOf(member: Staff) {
+  return membershipHere(member)?.syncIssue ?? null
+}
+
 const canSave = computed(() => {
   if (isSaving.value || !formName.value.trim()) return false
   if (editId.value) return true
   return formEmail.value.includes('@') && formPassword.value.length >= 10
 })
 
+// ── EMS link state ────────────────────────────────────────────────────────────
+// Probed ONCE per visit with a one-row page: 422 "not linked" means this
+// property has no EMS mapping (no Add-from-EMS button, and removal is open to
+// everyone); 503 means it is mapped but EMS is down right now; anything else
+// means linked. The page re-mounts on a hotel switch, so the probe runs again.
+
+/** null until probed. */
+const emsLinked = ref<boolean | null>(null)
+const emsHint = ref('')
+let emsProbed = false
+
+async function probeEms() {
+  if (emsProbed) return
+  emsProbed = true
+  try {
+    await api.listEmsEmployees({ pageSize: 1 })
+    emsLinked.value = true
+  }
+  catch (e) {
+    const err = e as Partial<ApiError>
+    if (err.status === 422) {
+      emsLinked.value = false
+    }
+    else if (err.status === 503) {
+      // Mapped — the link check passed — but unreachable; the button stays, the dialog will say so verbatim.
+      emsLinked.value = true
+      emsHint.value = 'EMS unavailable'
+    }
+    else {
+      emsLinked.value = true
+    }
+  }
+}
+
 async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const [staffRows, deptRows] = await Promise.all([api.listStaff(), api.listHotelDepartments()])
+    const [staffRows, deptRows] = await Promise.all([
+      api.listStaff(needsAttentionOnly.value ? { needsAttention: true } : {}),
+      api.listHotelDepartments(),
+    ])
     rows.value = staffRows
     departments.value = deptRows
   }
@@ -76,6 +130,48 @@ async function load() {
   }
   finally {
     isLoading.value = false
+  }
+  void probeEms()
+}
+
+function toggleNeedsAttention() {
+  needsAttentionOnly.value = !needsAttentionOnly.value
+  void load()
+}
+
+// ── Remove from this property ─────────────────────────────────────────────────
+
+const removeTarget = ref<Staff | null>(null)
+const isRemoving = ref(false)
+
+/**
+ * Hidden where the API would refuse anyway: yourself, and — at an EMS-mapped
+ * property — anyone EMS manages (EMS would quietly add them back; remove them
+ * there). Until the probe answers, EMS-linked rows keep the action hidden too.
+ */
+function canRemove(member: Staff) {
+  if (member.id === session.userId.value) return false
+  if (member.emsEmployeeId && emsLinked.value !== false) return false
+  return true
+}
+
+async function performRemove() {
+  const target = removeTarget.value
+  if (!target || isRemoving.value) return
+  isRemoving.value = true
+  errorMessage.value = ''
+  try {
+    await api.removeStaffFromProperty(target.id)
+    removeTarget.value = null
+    await load()
+  }
+  catch (e) {
+    // The 409s ("you cannot remove yourself…", "managed by EMS…") in the API's words.
+    errorMessage.value = (e as Error).message
+    removeTarget.value = null
+  }
+  finally {
+    isRemoving.value = false
   }
 }
 
@@ -89,6 +185,7 @@ function openCreate() {
   formCreateTask.value = true
   formActive.value = true
   formPromoteToAdmin.value = false
+  editEmsLinked.value = false
   formError.value = ''
   dialogOpen.value = true
 }
@@ -96,6 +193,7 @@ function openCreate() {
 function openEdit(member: Staff) {
   const membership = membershipHere(member)
   editId.value = member.id
+  editEmsLinked.value = Boolean(member.emsEmployeeId)
   formEmail.value = member.email
   formName.value = member.name
   formPassword.value = ''
@@ -171,6 +269,120 @@ async function save() {
   }
   finally {
     isSaving.value = false
+  }
+}
+
+// ── Add from EMS ──────────────────────────────────────────────────────────────
+// The property's people as EMS lists them, each annotated with its state
+// here. Only `addable` rows can be picked; the add is one request for the
+// whole pick, answered per person (created / linked / granted / skipped /
+// failed + reason), and the staff list is reloaded afterwards.
+
+const EMS_PAGE_SIZE = 20
+
+const emsOpen = ref(false)
+const emsQuery = ref('')
+/** The query the current page was fetched with — paging keeps it, a new search resets to page 1. */
+const emsAppliedQuery = ref('')
+const emsRows = ref<EmsEmployee[]>([])
+const emsMeta = ref({ page: 1, pageSize: EMS_PAGE_SIZE, total: 0 })
+const emsLoading = ref(false)
+const emsSubmitting = ref(false)
+const emsError = ref('')
+const emsPicked = ref(new Set<string>())
+const emsRole = ref<'staff' | 'leader' | 'admin'>('staff')
+const emsCreateTask = ref(true)
+const emsResults = ref<EmsAddResult[]>([])
+
+const emsPageCount = computed(() => Math.max(1, Math.ceil(emsMeta.value.total / emsMeta.value.pageSize)))
+const emsPickedCount = computed(() => emsPicked.value.size)
+
+const EMS_STATE_META: Record<EmsEmployee['state'], { label: string, variant: 'success' | 'default' | 'secondary' | 'warning' }> = {
+  added: { label: 'Added', variant: 'success' },
+  addable: { label: 'Addable', variant: 'default' },
+  no_email: { label: 'No email', variant: 'warning' },
+  inactive: { label: 'Inactive', variant: 'secondary' },
+}
+
+const EMS_OUTCOME_META: Record<EmsAddResult['outcome'], { label: string, variant: 'success' | 'default' | 'warning' | 'secondary' | 'destructive', hint: string }> = {
+  created: { label: 'Created', variant: 'success', hint: 'New account, no password — they sign in by magic link or Google.' },
+  linked: { label: 'Linked', variant: 'default', hint: 'An existing account with this email is now tied to the EMS record.' },
+  granted: { label: 'Granted', variant: 'warning', hint: 'Already had an account; given access here.' },
+  skipped: { label: 'Skipped', variant: 'secondary', hint: 'Already a member here — nothing changed.' },
+  failed: { label: 'Failed', variant: 'destructive', hint: 'Nothing changed for this person — see the reason.' },
+}
+
+/** The API's reason codes, spelled out; an unknown code is shown as sent. */
+const EMS_REASONS: Record<string, string> = {
+  not_found_at_this_property: 'EMS does not list this person at this property',
+  inactive: 'inactive in EMS',
+  no_email: 'no email in EMS',
+  invalid_email: 'the EMS email is not a valid address',
+  email_taken: 'the email belongs to a different Tasks account',
+  email_linked_to_other_employee: 'the email is already linked to another EMS employee',
+  error: 'the API could not apply this row',
+}
+
+const emsReason = (reason: string | undefined) => (reason ? (EMS_REASONS[reason] ?? reason) : '')
+const emsNameById = computed(() => new Map(emsRows.value.map(r => [r.emsEmployeeId, r.name])))
+
+async function loadEmsPage(page: number, query = emsAppliedQuery.value) {
+  emsLoading.value = true
+  emsError.value = ''
+  try {
+    const { data, meta } = await api.listEmsEmployees({ q: query || undefined, page, pageSize: EMS_PAGE_SIZE })
+    emsRows.value = data
+    emsMeta.value = { page: meta.page, pageSize: meta.pageSize || EMS_PAGE_SIZE, total: meta.total }
+    emsAppliedQuery.value = query
+  }
+  catch (e) {
+    emsError.value = (e as Error).message
+  }
+  finally {
+    emsLoading.value = false
+  }
+}
+
+function openEms() {
+  emsQuery.value = ''
+  emsAppliedQuery.value = ''
+  emsRows.value = []
+  emsMeta.value = { page: 1, pageSize: EMS_PAGE_SIZE, total: 0 }
+  emsPicked.value = new Set()
+  emsRole.value = 'staff'
+  emsCreateTask.value = true
+  emsResults.value = []
+  emsError.value = ''
+  emsOpen.value = true
+  void loadEmsPage(1, '')
+}
+
+function searchEms() {
+  void loadEmsPage(1, emsQuery.value.trim())
+}
+
+function toggleEmsPick(id: string, checked: boolean) {
+  const next = new Set(emsPicked.value)
+  if (checked) next.add(id)
+  else next.delete(id)
+  emsPicked.value = next
+}
+
+async function submitEms() {
+  if (emsSubmitting.value || emsPicked.value.size === 0) return
+  emsSubmitting.value = true
+  emsError.value = ''
+  try {
+    emsResults.value = await api.addEmsEmployees({ emsEmployeeIds: [...emsPicked.value], role: emsRole.value, createTask: emsCreateTask.value })
+    emsPicked.value = new Set()
+    // People landed even when some rows failed — both lists must show them.
+    await Promise.all([load(), loadEmsPage(emsMeta.value.page)])
+  }
+  catch (e) {
+    emsError.value = (e as Error).message
+  }
+  finally {
+    emsSubmitting.value = false
   }
 }
 
@@ -267,10 +479,20 @@ onMounted(load)
       :icon="UsersIcon"
     >
       <template #actions>
+        <Button size="sm" :variant="needsAttentionOnly ? 'default' : 'outline'" :aria-pressed="needsAttentionOnly" @click="toggleNeedsAttention">
+          <TriangleAlertIcon />
+          Needs attention
+        </Button>
         <Button size="sm" variant="outline" @click="openImport">
           <FileUpIcon />
           Import roster
         </Button>
+        <!-- Only at an EMS-mapped property; the probe decides. -->
+        <Button v-if="emsLinked" size="sm" variant="outline" @click="openEms">
+          <CloudDownloadIcon />
+          Add from EMS
+        </Button>
+        <span v-if="emsHint" class="text-xs text-muted-foreground">{{ emsHint }}</span>
         <Button size="sm" @click="openCreate">
           <PlusIcon />
           Add member
@@ -315,14 +537,27 @@ onMounted(load)
             <TableBody>
               <TableRow v-for="member in rows" :key="member.id" :class="member.isActive ? '' : 'opacity-55'">
                 <TableCell>
-                  <p class="font-medium text-foreground">{{ member.name }}</p>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <p class="font-medium text-foreground">{{ member.name }}</p>
+                    <Badge v-if="member.emsEmployeeId" variant="outline" class="text-[10px]" title="Linked to Sentec EMS — EMS owns the name, email and department">EMS</Badge>
+                  </div>
                   <p class="text-xs text-muted-foreground">{{ member.email }}</p>
                   <p v-if="otherPropertyCount(member) > 0" class="text-xs text-muted-foreground">
                     Also at {{ otherPropertyCount(member) }} other {{ otherPropertyCount(member) === 1 ? 'property' : 'properties' }}
                   </p>
                 </TableCell>
                 <TableCell class="capitalize text-foreground">{{ membershipHere(member)?.role ?? 'staff' }}</TableCell>
-                <TableCell class="text-foreground">{{ departmentName(membershipHere(member)?.hotelDepartmentId) }}</TableCell>
+                <TableCell>
+                  <p class="text-foreground">{{ departmentName(membershipHere(member)?.hotelDepartmentId) }}</p>
+                  <!-- EMS named a department this property lacks; the admin picks one from Edit and the issue clears. -->
+                  <div v-if="syncIssueOf(member)" class="mt-1 flex flex-wrap items-center gap-1.5">
+                    <Badge variant="warning">
+                      <TriangleAlertIcon />
+                      Needs attention
+                    </Badge>
+                    <span class="text-xs text-muted-foreground">EMS says {{ syncIssueOf(member)?.emsDepartmentName }}</span>
+                  </div>
+                </TableCell>
                 <TableCell>
                   <Badge :variant="membershipHere(member)?.createTask ? 'outline' : 'secondary'">{{ membershipHere(member)?.createTask ? 'Yes' : 'No' }}</Badge>
                 </TableCell>
@@ -330,15 +565,28 @@ onMounted(load)
                   <Badge :variant="member.isActive ? 'success' : 'secondary'">{{ member.isActive ? 'Active' : 'Inactive' }}</Badge>
                 </TableCell>
                 <TableCell class="text-right">
-                  <Button size="sm" variant="outline" :aria-label="`Edit ${member.name}`" @click="openEdit(member)">
-                    <PencilIcon />
-                    Edit
-                  </Button>
+                  <div class="flex items-center justify-end gap-2">
+                    <Button size="sm" variant="outline" :aria-label="`Edit ${member.name}`" @click="openEdit(member)">
+                      <PencilIcon />
+                      Edit
+                    </Button>
+                    <Button
+                      v-if="canRemove(member)"
+                      size="sm"
+                      variant="ghost"
+                      class="text-muted-foreground hover:text-destructive"
+                      :aria-label="`Remove ${member.name} from this property`"
+                      @click="removeTarget = member"
+                    >
+                      <UserRoundMinusIcon />
+                      Remove
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
               <TableRow v-if="!isLoading && rows.length === 0">
                 <TableCell colspan="6" class="py-10 text-center text-sm text-muted-foreground">
-                  Nobody here yet.
+                  {{ needsAttentionOnly ? 'Nothing needs attention — every EMS-synced membership here is clean.' : 'Nobody here yet.' }}
                 </TableCell>
               </TableRow>
             </TableBody>
@@ -374,6 +622,7 @@ onMounted(load)
               <Label for="member-name">Name</Label>
               <Input id="member-name" v-model="formName" placeholder="Full name" />
               <p v-if="!editId" class="text-xs text-muted-foreground">Ignored when the email already has an account.</p>
+              <p v-else-if="editEmsLinked" class="text-xs text-muted-foreground">Synced from EMS. The next EMS update overwrites this; fix it in EMS.</p>
             </div>
             <div class="space-y-2">
               <Label for="member-email">Email</Label>
@@ -440,7 +689,7 @@ onMounted(load)
           <div v-if="editId" class="flex items-center justify-between rounded-lg border px-4 py-3">
             <div>
               <Label for="member-active" class="cursor-pointer">Active</Label>
-              <p class="text-xs text-muted-foreground">Account-wide: deactivating blocks sign-in at every property; nothing is deleted.</p>
+              <p class="text-xs text-muted-foreground">Account-wide. Deactivating signs them out and returns their open tasks at every property to the pools.</p>
             </div>
             <Switch id="member-active" v-model="formActive" />
           </div>
@@ -548,5 +797,168 @@ onMounted(load)
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog v-model:open="emsOpen">
+      <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Add from EMS to {{ hotelName }}</DialogTitle>
+          <DialogDescription>
+            Everyone Sentec EMS lists at this property. Pick the addable ones; they all get the role and create-task setting below.
+            EMS owns their name, email and department from then on. Someone with no email in EMS cannot sign in, so cannot be added.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Alert v-if="emsError" variant="destructive">
+          <AlertTitle>EMS request failed</AlertTitle>
+          <AlertDescription>{{ emsError }}</AlertDescription>
+        </Alert>
+
+        <div class="space-y-5 py-2">
+          <form class="flex items-center gap-2" @submit.prevent="searchEms">
+            <Input v-model="emsQuery" placeholder="Search by name, email or EMS id" aria-label="Search EMS employees" />
+            <Button type="submit" size="sm" variant="outline" :disabled="emsLoading">
+              <SearchIcon />
+              Search
+            </Button>
+          </form>
+
+          <div class="overflow-x-auto rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead class="w-10" />
+                  <TableHead>Employee</TableHead>
+                  <TableHead>EMS department</TableHead>
+                  <TableHead>State</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="row in emsRows" :key="row.emsEmployeeId" :class="row.state === 'addable' ? '' : 'opacity-70'">
+                  <TableCell>
+                    <!-- Only addable rows can be picked; the others say why not in the State column. -->
+                    <Checkbox
+                      v-if="row.state === 'addable'"
+                      :model-value="emsPicked.has(row.emsEmployeeId)"
+                      :aria-label="`Pick ${row.name}`"
+                      @update:model-value="checked => toggleEmsPick(row.emsEmployeeId, checked === true)"
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <p class="font-medium text-foreground">{{ row.name }}</p>
+                    <p class="text-xs text-muted-foreground">{{ row.email ?? 'No email' }} · <span class="font-mono">{{ row.emsEmployeeId }}</span></p>
+                  </TableCell>
+                  <TableCell>
+                    <p class="text-foreground">{{ row.departmentName ?? '—' }}</p>
+                    <p v-if="row.departmentName && !row.hotelDepartmentId" class="text-xs text-muted-foreground">No match here — will need attention</p>
+                  </TableCell>
+                  <TableCell>
+                    <Badge :variant="EMS_STATE_META[row.state].variant">{{ EMS_STATE_META[row.state].label }}</Badge>
+                  </TableCell>
+                </TableRow>
+                <TableRow v-if="!emsLoading && emsRows.length === 0">
+                  <TableCell colspan="4" class="py-8 text-center text-sm text-muted-foreground">
+                    {{ emsError ? 'Nothing to show.' : emsAppliedQuery ? 'No one in EMS matches that search.' : 'EMS lists no one at this property.' }}
+                  </TableCell>
+                </TableRow>
+                <TableRow v-if="emsLoading && emsRows.length === 0">
+                  <TableCell colspan="4" class="py-8 text-center text-sm text-muted-foreground">Loading from EMS…</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+            <span>{{ emsMeta.total }} in EMS · page {{ emsMeta.page }} of {{ emsPageCount }} · {{ emsPickedCount }} picked</span>
+            <div class="flex items-center gap-2">
+              <Button size="sm" variant="outline" :disabled="emsLoading || emsMeta.page <= 1" @click="loadEmsPage(emsMeta.page - 1)">Previous</Button>
+              <Button size="sm" variant="outline" :disabled="emsLoading || emsMeta.page >= emsPageCount" @click="loadEmsPage(emsMeta.page + 1)">Next</Button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div class="space-y-2">
+              <Label>Role at {{ hotelName }}</Label>
+              <Select v-model="emsRole">
+                <SelectTrigger class="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="staff">Staff</SelectItem>
+                  <SelectItem value="leader">Leader</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div class="flex items-center justify-between rounded-lg border px-4 py-3">
+              <div>
+                <Label for="ems-create-task" class="cursor-pointer">Can raise tasks here</Label>
+                <p class="text-xs text-muted-foreground">Applied to everyone picked.</p>
+              </div>
+              <Switch id="ems-create-task" v-model="emsCreateTask" />
+            </div>
+          </div>
+
+          <div v-if="emsResults.length" class="space-y-3">
+            <p class="text-sm font-semibold text-foreground">Outcome</p>
+            <div class="overflow-x-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Employee</TableHead>
+                    <TableHead>Outcome</TableHead>
+                    <TableHead>Detail</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  <TableRow v-for="result in emsResults" :key="result.emsEmployeeId">
+                    <TableCell>
+                      <p class="text-foreground">{{ emsNameById.get(result.emsEmployeeId) ?? result.emsEmployeeId }}</p>
+                      <p class="font-mono text-xs text-muted-foreground">{{ result.emsEmployeeId }}</p>
+                    </TableCell>
+                    <TableCell>
+                      <Badge :variant="EMS_OUTCOME_META[result.outcome].variant">{{ EMS_OUTCOME_META[result.outcome].label }}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <span v-if="result.outcome === 'failed'" class="text-sm font-medium text-destructive">{{ emsReason(result.reason) }}</span>
+                      <span v-else class="text-xs text-muted-foreground">{{ EMS_OUTCOME_META[result.outcome].hint }}</span>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" :disabled="emsSubmitting" @click="emsOpen = false">{{ emsResults.length ? 'Close' : 'Cancel' }}</Button>
+          <Button :disabled="emsSubmitting || emsPickedCount === 0" @click="submitEms">
+            <CloudDownloadIcon />
+            {{ emsSubmitting ? 'Adding…' : `Add ${emsPickedCount || ''}`.trim() }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <AlertDialog :open="Boolean(removeTarget)" @update:open="value => { if (!value) removeTarget = null }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {{ removeTarget?.name }} from {{ hotelName }}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Their open work here goes back to its pool and their team, helper and offer roles here are cleared.
+            The account itself and their other properties are untouched; they can be added again later.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isRemoving">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive-hover"
+            :disabled="isRemoving"
+            @click.prevent="performRemove"
+          >
+            {{ isRemoving ? 'Removing…' : 'Remove from this property' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

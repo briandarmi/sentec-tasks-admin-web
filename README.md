@@ -1,10 +1,11 @@
 # Sentec Tasks — Admin Web
 
 The **admin and operator console** for [Sentec Tasks](../docs/sentec-tasks.md):
-property configuration (the property's time zone, departments, staff and the
-roster import, teams, locations, SLAs, routing, operating schedules, task
-templates, terminology, board columns, catalog and its categories) and the
-Sentinel Tech platform screens (properties, groups and access,
+property configuration (the property's time zone, departments, staff with the
+roster import and the EMS add, teams, locations, SLAs, routing, escalation
+policies, operating schedules, task templates, terminology, board columns,
+catalog and its categories) and the Sentinel Tech platform screens
+(properties and their partner ids, master departments, groups and access,
 integration partners, the source-app registry), plus the cross-tenant group
 report.
 
@@ -13,15 +14,21 @@ The staff workspace — the queue people actually work from — is a separate ap
 **self-contained**: clone it from GitHub on its own, `pnpm install`, and it
 builds.
 
-## The mock is the real API's contract
+## Two backends, one contract
 
-The app runs against the in-browser mock in
+`pnpm dev` runs this console against the **dev copy of `sentec-tasks-api`** on
+AWS Lambda through a local proxy (see [Running against the dev API](#running-against-the-dev-api)).
+Tests, static builds (GitHub Pages, CloudFront) and `NUXT_USE_MOCK=1 pnpm dev`
+run against the in-browser mock in
 [`app/utils/clientFakeApi.ts`](app/utils/clientFakeApi.ts), which since
 2026-09-02 is **wire-faithful to `sentec-tasks-api`** (Go + PostgreSQL, pinned
 at `master` commit `c3f52ad` plus the passwordless sign-in branch
-`feat/google-and-magic-link-auth` @ `48756a3`, re-aligned 2026-09-16, and the
+`feat/google-and-magic-link-auth` @ `48756a3`, re-aligned 2026-09-16, the
 `feat/projects` branch @ `fe5e99d`, reconciled 2026-09-29 against its Go —
-per-hotel roles, roster import, task templates, hotel time zone): exact
+per-hotel roles, roster import, task templates, hotel time zone — and the
+`refactor/ponytail-audit` tip @ `1ee8c12`, 2026-10-06: escalation policies,
+department CRUD with the hotel soft delete, EMS staff sync, offboarding,
+partner capabilities and the main/interface surface split): exact
 paths, methods, envelope, UUIDs, `X-Hotel-Id` scoping, error codes and message
 literals. See the staff workspace's README for the full fidelity story, the
 seams a browser mock cannot cross, and the auth model (password, Google
@@ -31,9 +38,16 @@ covers what is admin-specific.
 ## Getting started
 
 ```bash
-pnpm install              # from the workspace root
-pnpm dev:tasks-admin      # or: pnpm --filter sentec-tasks-admin-web dev
+pnpm install                 # from the workspace root
+pnpm dev:tasks-admin         # live, against the dev API: http://localhost:3001
+NUXT_USE_MOCK=1 pnpm dev     # the in-browser mock, with the demo accounts below
 ```
+
+The dev database has no demo accounts: sign in with a real admin or operator
+account (the operator is the one the Lambda seeds from
+`OPERATOR_BOOTSTRAP_EMAIL` / `_PASSWORD`; property admins are minted by the
+operator or sign in with Google once their account exists). The table below
+is the **mock's** cast:
 
 | Email                           | Password       | Who they are                                     |
 | ------------------------------- | -------------- | ------------------------------------------------ |
@@ -58,22 +72,27 @@ first admin (one-time temporary password, shown once), manage groups, grants,
 partners and the source-app registry. Property configuration belongs to that
 property's own admin.
 
-### Against the dev API
+### Running against the dev API
 
-The same build can run against the dev copy of `sentec-tasks-api`
-(`feat/projects`) on AWS Lambda instead of the mock:
+`pnpm dev` talks to the dev copy of `sentec-tasks-api` (`refactor/ponytail-audit`)
+on AWS Lambda **by default** — the Function URL is `DEV_API_URL` in
+`nuxt.config.ts`. The API signs you in with a `SameSite=Lax` `st_session`
+cookie, so the console and the API must look like one site to the browser:
+`nuxt dev` forwards `/v1/*` to the Function URL (`nitro.devProxy`,
+`changeOrigin` because a Function URL routes on the Host header) and the
+console calls its own dev server. Nothing to configure; `.env.example` lists
+the overrides:
 
 ```bash
-cp .env.example .env      # NUXT_DEV_API_PROXY + NUXT_PUBLIC_API_BASE, already filled in
-pnpm dev                  # then open http://localhost:3001
+pnpm dev                     # live data, http://localhost:3001
+NUXT_USE_MOCK=1 pnpm dev     # the in-browser mock instead (what the tests use)
+NUXT_DEV_API_PROXY=http://localhost:8080 pnpm dev   # a local `go run ./cmd/server`
 ```
 
-`nuxt dev` forwards `/v1/*` to the Function URL (`nitro.devProxy`), so the
-browser sees one origin and the API's `SameSite=Lax` `st_session` cookie is
-stored on `localhost`. What to know:
-
 - **Browse to `localhost`, never `127.0.0.1`.** They are different sites: the
-  cookie will not match and the origin is not on the API's allow-list.
+  cookie will not match and the origin is not on the API's allow-list
+  (`CORS_ALLOWED_ORIGINS` = `localhost:3000`, `localhost:3001`). This console
+  is pinned to port 3001 (`devServer.port`), the staff workspace to 3000.
   `NUXT_PUBLIC_API_BASE` must be this app's own dev server, never the Function
   URL itself.
 - **Google and magic-link sign-in come back through the STAFF dev server on
@@ -85,8 +104,14 @@ stored on `localhost`. What to know:
   emailed — they land in the Lambda's CloudWatch log. Use password login if
   you cannot read that log.
 - Live, the login screen drops the mock-only furniture (demo-account chips,
-  demo inbox, the stand-in Google account chooser); the flows themselves are
-  the same.
+  demo inbox, the stand-in Google account chooser) and says it is connected
+  to the development API; the flows themselves are the same.
+- Static builds (`pnpm generate`: GitHub Pages, CloudFront) have no dev proxy
+  and stay on the mock unless `NUXT_PUBLIC_API_BASE` names a same-site API.
+- Verified 2026-10-07: `/v1/*` through the dev server reaches the Lambda (a
+  wrong password answers the API's own 401 envelope, the served runtime config
+  points at `http://localhost:3001`). A full sign-in was not exercised here,
+  for want of a dev account on this machine.
 
 ```bash
 pnpm test          # 159 tests over this repo's own copy of everything
@@ -120,18 +145,20 @@ sidebar's per-group `visible` flag, not in the URL.
 | `/catalog`              | Catalog              | `admin`    |
 | `/categories`           | Categories           | `admin`    |
 | `/property`             | Property (time zone) | `admin`    |
-| `/departments`          | Departments          | `admin`    |
+| `/departments`          | Departments (+ soft delete) | `admin` |
 | `/staff`                | Staff + roster import | `admin`   |
 | `/teams`                | Teams                | `admin`    |
 | `/locations`            | Locations & types    | `admin`    |
 | `/routing`              | Routing Rules        | `admin`    |
 | `/slas`                 | SLAs                 | `admin`    |
+| `/escalation-policies`  | Escalation Policies  | `admin`    |
 | `/operating-schedules`  | Operating Schedules  | `admin`    |
 | `/task-templates`       | Task Templates       | `admin`    |
 | `/terminology`          | Terminology          | `admin`    |
 | `/group-report`         | Group Report         | grant or operator |
 | `/platform`             | Operator Home        | `operator` |
-| `/properties`           | Properties           | `operator` |
+| `/properties`           | Properties (+ partner ids) | `operator` |
+| `/master-departments`   | Master Departments   | `operator` |
 | `/groups`               | Groups & Access      | `operator` |
 | `/partners`             | Integration Partners | `operator` |
 | `/login`                | The only public route | —         |
@@ -139,8 +166,59 @@ sidebar's per-group `visible` flag, not in the URL.
 ## What the contract dictates (and this console honors)
 
 - **Departments are a two-level model.** Sentinel curates a master catalogue
-  (service-created); an admin can only *enable* entries for their hotel. The
-  screen offers exactly that — no free-text department names.
+  (operators, or a non-partner service token); an admin can only *enable*
+  entries for their hotel. The screen offers exactly that — no free-text
+  department names.
+- **Departments have a soft delete and a master CRUD** (`refactor/ponytail-audit`,
+  2026-10-06). `PATCH /v1/hotel-departments/{id} {isActive}` deactivates a
+  department for the hotel — 409 while routing rules or escalation steps
+  still route to it, the message naming both counts — or reactivates it,
+  422 "department is not available" once the master is retired. Staff, teams
+  and schedules keep an inactive department but cannot newly choose one
+  (422 "invalid department reference" only when the value changes). Operators
+  manage the master catalogue on `/master-departments`: name, code (A–Z 0–9 _,
+  ≤ 16, stored upper-case), description ≤ 500, active; delete only while no
+  hotel ever used it, else 409 "deactivate it instead". Every hotel row
+  mirrors its master's name, code, description and `masterIsActive`.
+- **Escalation policies** (`/escalation-policies`). `POST /v1/escalation-policies`
+  upserts the policy **and its steps**: a step with an id is updated, one
+  without is created, a live step left out is removed — so the editor resends
+  every kept step with its id. Up to 10 steps with unique `sort` 0–9; triggers
+  RESPONSE_OVERDUE / PERCENT_OF_RESOLUTION (1–100) / RESOLUTION_OVERDUE /
+  UNASSIGNED_FOR (≥ 1), in working minutes on the task's schedule; actions
+  bumpPriority, reassign (exactly one of staff / team), routeToDepartment (an
+  active department); recipients departmentLeaders / admins / assignee at
+  most once, teams and staff by target. A new default demotes the old one
+  (confirmed, like SLAs); `isActive` is sent explicitly, since omitting it
+  means unchanged. SLAs and routing rules carry `escalationPolicyId`: the
+  forms always send it — absent would keep the stored link, null clears it, a
+  value must be an active policy of this hotel (422). A task resolves its
+  policy once at creation: rule → SLA → the hotel's default. The API's worker
+  applies the steps; the mock sweeps lazily before every request. Validation
+  errors are shown verbatim (`steps[1]: duplicate sort 0`).
+- **EMS staff sync.** An operator maps a property to its id at a partner
+  (Partner IDs on the Properties screen, `PUT /v1/platform/tenants/{hotelRef}/sync/{partnerId}`;
+  409 when another property holds that id). At a property mapped to Sentec
+  EMS, the Staff screen's "Add from EMS" browses `GET /v1/ems/employees` (state
+  added / addable / no email / inactive, paged and searchable) and adds people
+  in bulk with one role and create-task flag; each id answers `created`,
+  `linked` (an existing manual account with that email), `granted`, `skipped`
+  or `failed` with a reason. EMS owns the name, email and department of linked
+  staff (`emsEmployeeId`; the next push overwrites admin edits). A department
+  EMS names that the property lacks becomes a `syncIssue` on the membership —
+  the "Needs attention" badge and filter (`GET /v1/staff?needsAttention=true`),
+  cleared by the next matching push or by setting the department by hand. An
+  unmapped property gets 422 "this property is not linked to EMS" and the
+  button hides; 503 means EMS is down. Partners carry `capabilities`
+  (`staff_sync` lets EMS push employee changes); an unknown value is a 400.
+- **Removing and deactivating people.** "Remove from this property"
+  (`DELETE /v1/staff/{id}/membership`, 204) returns the person's open tasks
+  here to their pools (the Return rule) and clears their helper, offer,
+  checklist-step and team roles here; 409 for yourself and for an EMS-linked
+  member of an EMS-mapped property ("remove this person in EMS"). Deactivating
+  an account (`isActive:false`) now does the same at every property and
+  revokes their sessions; the memberships are kept, so reactivation restores
+  access.
 - **Board columns ride one endpoint.** `PATCH /v1/kanban-board` takes a list of
   edits; a column's status link is immutable once created, and a removal that
   would orphan active work is *skipped with a warning*, never an error. The
@@ -217,7 +295,9 @@ sidebar's per-group `visible` flag, not in the URL.
   There is no `projects` key.
 - **Partners have no rotate-secret route.** The secret is returned exactly once
   at registration; revocation IS deactivation (checked per request, no
-  caching), and a new secret means a new registration.
+  caching), and a new secret means a new registration. Partner tokens are
+  accepted by the API's *interface* deployment only (dispatch, guest
+  attachments, the EMS push); this console's calls go to the *main* one.
 - **Group grants are per staff member** (`PUT /v1/staff/{id}/group-grants/{groupId}`),
   operator-only, and expand the holder's hotels claim at their next sign-in.
   There is no grant-listing endpoint — the Groups screen assembles holders from
@@ -346,5 +426,9 @@ property).
 
 - **No browser or component tests** — same environment constraint as the staff
   workspace; `pnpm build` and `pnpm typecheck` pass.
-- **Partner dispatch is modelled, not integrated.** A partner token can create
-  tasks against the mock, but no outside system is actually wired in.
+- **Sign-in against the dev API.** The proxy and the API's error envelope were
+  checked from this machine (2026-10-07); a real account was not available to
+  sign in with, so the screens have been exercised against the mock only.
+- **Partner dispatch and the EMS push are modelled, not integrated.** A
+  partner token can dispatch and push against the mock; no outside system is
+  wired in, and the mock's EMS directory is a seeded stand-in for EMS.

@@ -338,7 +338,13 @@ async function followApiLink(url: string) {
         </form>
       </CardContent>
 
-      <CardFooter v-if="!isLive && demos.length">
+      <!-- Live: the dev API has real people; the seeded accounts exist in the mock only. -->
+      <CardFooter v-if="isLive">
+        <p class="w-full rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+          Connected to the development API — sign in with your Sentec Tasks admin or operator account.
+        </p>
+      </CardFooter>
+      <CardFooter v-else-if="demos.length">
         <div class="w-full space-y-2 rounded-lg border bg-muted/50 p-3">
           <p class="text-xs font-semibold text-muted-foreground">Demo accounts</p>
           <div class="grid grid-cols-2 gap-2">

@@ -6,6 +6,7 @@ import {
   GaugeIcon,
   HotelIcon,
   LanguagesIcon,
+  LayersIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   MapPinIcon,
@@ -14,6 +15,7 @@ import {
   PlugZapIcon,
   RepeatIcon,
   ShapesIcon,
+  SirenIcon,
   SquareKanbanIcon,
   TimerIcon,
   UsersIcon,
@@ -76,6 +78,7 @@ const navGroups = computed<NavGroup[]>(() => [
     items: [
       { to: '/routing', label: 'Routing Rules', icon: MapPinnedIcon },
       { to: '/slas', label: 'SLAs', icon: TimerIcon },
+      { to: '/escalation-policies', label: 'Escalation Policies', icon: SirenIcon },
       { to: '/operating-schedules', label: 'Operating Schedules', icon: CalendarClockIcon },
       { to: '/task-templates', label: 'Task Templates', icon: RepeatIcon },
       { to: '/terminology', label: 'Terminology', icon: LanguagesIcon },
@@ -95,6 +98,7 @@ const navGroups = computed<NavGroup[]>(() => [
     items: [
       { to: '/platform', label: 'Operator Home', icon: LayoutDashboardIcon },
       { to: '/properties', label: 'Properties', icon: Building2Icon },
+      { to: '/master-departments', label: 'Master Departments', icon: LayersIcon },
       { to: '/groups', label: 'Groups & Access', icon: NetworkIcon },
       { to: '/partners', label: 'Integration Partners', icon: PlugZapIcon },
     ],

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { Building2Icon, KeyRoundIcon, PlusIcon, UserRoundPlusIcon } from '@lucide/vue'
+import { Building2Icon, KeyRoundIcon, Link2Icon, PlusIcon, Trash2Icon, UserRoundPlusIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { Tenant, TenantGroup } from '~/utils/clientFakeApi'
+import type { Partner, Tenant, TenantGroup, TenantSyncLink } from '~/utils/clientFakeApi'
 
 /**
  * Platform tenants. Provisioning is idempotent and seeds the master-template
@@ -16,6 +16,7 @@ type GroupRow = TenantGroup & { tenants: Array<{ hotelRef: string, name: string 
 
 const tenants = ref<Tenant[]>([])
 const groups = ref<GroupRow[]>([])
+const partners = ref<Partner[]>([])
 const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
@@ -50,9 +51,10 @@ async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    const [loadedTenants, loadedGroups] = await Promise.all([api.listTenants(), api.listTenantGroups()])
+    const [loadedTenants, loadedGroups, loadedPartners] = await Promise.all([api.listTenants(), api.listTenantGroups(), api.listPartners()])
     tenants.value = loadedTenants
     groups.value = loadedGroups
+    partners.value = loadedPartners
   }
   catch (e) {
     errorMessage.value = (e as Error).message
@@ -109,6 +111,98 @@ async function createFirstAdmin() {
   }
   finally {
     isSaving.value = false
+  }
+}
+
+// ── Partner IDs (feat/ems-staff-sync §8.4) ────────────────────────────────────
+// A partner's own id for this property — EMS's hotel id, for instance. One
+// per (property, partner); PUT creates or replaces, and the API refuses (409)
+// an id another property already holds for the same partner. Removing a link
+// keeps every membership; future pushes from that partner are just ignored.
+
+const syncOpen = ref(false)
+const syncTenant = ref<Tenant | null>(null)
+const syncLinks = ref<TenantSyncLink[]>([])
+const syncLoading = ref(false)
+const syncSaving = ref(false)
+const syncError = ref('')
+const formSyncPartnerId = ref('')
+const formSyncId = ref('')
+const removeLinkTarget = ref<TenantSyncLink | null>(null)
+
+const canSaveSync = computed(() => !syncSaving.value && Boolean(formSyncPartnerId.value) && Boolean(formSyncId.value.trim()))
+/** Saving onto a partner that already has a link REPLACES its id — said next to the button. */
+const syncReplaces = computed(() => syncLinks.value.find(l => l.partnerId === formSyncPartnerId.value) ?? null)
+
+async function loadSyncLinks() {
+  const tenant = syncTenant.value
+  if (!tenant) return
+  syncLoading.value = true
+  syncError.value = ''
+  try {
+    syncLinks.value = await api.listTenantSyncLinks(tenant.hotelRef)
+  }
+  catch (e) {
+    syncError.value = (e as Error).message
+  }
+  finally {
+    syncLoading.value = false
+  }
+}
+
+function openSyncLinks(tenant: Tenant) {
+  syncTenant.value = tenant
+  syncLinks.value = []
+  formSyncPartnerId.value = ''
+  formSyncId.value = ''
+  syncError.value = ''
+  syncOpen.value = true
+  void loadSyncLinks()
+}
+
+/** Prefill the form from a row so "replace" is one click away from "read". */
+function editSyncLink(link: TenantSyncLink) {
+  formSyncPartnerId.value = link.partnerId
+  formSyncId.value = link.syncId
+}
+
+async function saveSyncLink() {
+  const tenant = syncTenant.value
+  if (!tenant || !canSaveSync.value) return
+  syncSaving.value = true
+  syncError.value = ''
+  try {
+    await api.setTenantSyncLink(tenant.hotelRef, formSyncPartnerId.value, formSyncId.value.trim())
+    formSyncPartnerId.value = ''
+    formSyncId.value = ''
+    await loadSyncLinks()
+  }
+  catch (e) {
+    // "another property already uses this id for this partner" — verbatim.
+    syncError.value = (e as Error).message
+  }
+  finally {
+    syncSaving.value = false
+  }
+}
+
+async function performRemoveLink() {
+  const tenant = syncTenant.value
+  const target = removeLinkTarget.value
+  if (!tenant || !target || syncSaving.value) return
+  syncSaving.value = true
+  syncError.value = ''
+  try {
+    await api.removeTenantSyncLink(tenant.hotelRef, target.partnerId)
+    removeLinkTarget.value = null
+    await loadSyncLinks()
+  }
+  catch (e) {
+    syncError.value = (e as Error).message
+    removeLinkTarget.value = null
+  }
+  finally {
+    syncSaving.value = false
   }
 }
 
@@ -173,10 +267,16 @@ onMounted(load)
                 <TableCell class="text-foreground">{{ groupNameByHotel.get(tenant.hotelRef) ?? '—' }}</TableCell>
                 <TableCell class="font-mono text-xs text-muted-foreground">{{ tenant.hotelRef }}</TableCell>
                 <TableCell class="text-right">
-                  <Button size="sm" variant="outline" @click="openFirstAdmin(tenant)">
-                    <UserRoundPlusIcon />
-                    First admin
-                  </Button>
+                  <div class="flex items-center justify-end gap-2">
+                    <Button size="sm" variant="outline" :aria-label="`Partner IDs for ${tenant.name}`" @click="openSyncLinks(tenant)">
+                      <Link2Icon />
+                      Partner IDs
+                    </Button>
+                    <Button size="sm" variant="outline" @click="openFirstAdmin(tenant)">
+                      <UserRoundPlusIcon />
+                      First admin
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
               <TableRow v-if="!isLoading && tenants.length === 0">
@@ -259,5 +359,121 @@ onMounted(load)
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <Dialog v-model:open="syncOpen">
+      <DialogContent class="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Partner IDs for {{ syncTenant?.name }}</DialogTitle>
+          <DialogDescription>
+            What each integration partner calls this property — Sentec EMS's hotel id, for instance. A partner's pushes for
+            that id land here; without a link, this property is "not linked" to that partner.
+          </DialogDescription>
+        </DialogHeader>
+
+        <Alert v-if="syncError" variant="destructive">
+          <AlertTitle>Could not update</AlertTitle>
+          <AlertDescription>{{ syncError }}</AlertDescription>
+        </Alert>
+
+        <div class="space-y-5 py-2">
+          <div class="overflow-hidden rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Partner</TableHead>
+                  <TableHead>Sync id</TableHead>
+                  <TableHead class="text-right" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow v-for="link in syncLinks" :key="link.id">
+                  <TableCell class="font-medium text-foreground">{{ link.partnerName }}</TableCell>
+                  <TableCell class="font-mono text-xs text-foreground">{{ link.syncId }}</TableCell>
+                  <TableCell class="text-right">
+                    <div class="flex items-center justify-end gap-1">
+                      <Button size="sm" variant="ghost" :disabled="syncSaving" @click="editSyncLink(link)">Replace</Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        class="text-muted-foreground hover:text-destructive"
+                        :disabled="syncSaving"
+                        :aria-label="`Remove the ${link.partnerName} id`"
+                        @click="removeLinkTarget = link"
+                      >
+                        <Trash2Icon />
+                        Remove
+                      </Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+                <TableRow v-if="!syncLoading && syncLinks.length === 0">
+                  <TableCell colspan="3" class="py-6 text-center text-sm text-muted-foreground">No partner ids yet.</TableCell>
+                </TableRow>
+                <TableRow v-if="syncLoading && syncLinks.length === 0">
+                  <TableCell colspan="3" class="py-6 text-center text-sm text-muted-foreground">Loading…</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+
+          <div class="space-y-3 rounded-lg border bg-card p-4">
+            <p class="text-sm font-semibold text-foreground">{{ syncReplaces ? `Replace the ${syncReplaces.partnerName} id` : 'Add a partner id' }}</p>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div class="space-y-2">
+                <Label>Partner</Label>
+                <Select v-model="formSyncPartnerId">
+                  <SelectTrigger class="w-full">
+                    <SelectValue placeholder="Select partner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="partner in partners" :key="partner.id" :value="partner.id">
+                      {{ partner.name }}{{ partner.isActive ? '' : ' (deactivated)' }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div class="space-y-2">
+                <Label for="sync-id">Sync id</Label>
+                <Input id="sync-id" v-model="formSyncId" class="font-mono text-xs" placeholder="The partner's id for this property" maxlength="100" />
+              </div>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs text-muted-foreground">
+                {{ syncReplaces ? `Currently ${syncReplaces.syncId}. One id per partner — saving replaces it.` : 'Must be unique per partner across every property.' }}
+              </p>
+              <Button size="sm" :disabled="!canSaveSync" @click="saveSyncLink">
+                {{ syncSaving ? 'Saving…' : syncReplaces ? 'Replace' : 'Add' }}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" :disabled="syncSaving" @click="syncOpen = false">Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <AlertDialog :open="Boolean(removeLinkTarget)" @update:open="value => { if (!value) removeLinkTarget = null }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove the {{ removeLinkTarget?.partnerName }} id?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {{ syncTenant?.name }} stops being linked to {{ removeLinkTarget?.partnerName }}: its future pushes for this property are ignored.
+            Existing memberships are kept.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="syncSaving">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            class="bg-destructive text-white hover:bg-destructive-hover"
+            :disabled="syncSaving"
+            @click.prevent="performRemoveLink"
+          >
+            {{ syncSaving ? 'Removing…' : 'Remove' }}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

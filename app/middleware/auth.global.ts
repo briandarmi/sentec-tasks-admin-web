@@ -24,6 +24,7 @@ import { safeRedirectPath } from '~/utils/sign-in'
 const OPERATOR_ROUTES = new Set([
   '/platform',
   '/properties',
+  '/master-departments',
   '/groups',
   '/partners',
 ])

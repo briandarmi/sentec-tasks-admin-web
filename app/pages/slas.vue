@@ -2,12 +2,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { PencilIcon, PlusIcon, StarIcon, TimerIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { Sla } from '~/utils/clientFakeApi'
+import type { EscalationPolicy, Sla } from '~/utils/clientFakeApi'
 import { formatMinutes } from '~/utils/task-ui'
 
 const api = useTasksApi()
 
 const slas = ref<Sla[]>([])
+const policies = ref<EscalationPolicy[]>([])
 const isLoading = ref(false)
 const isSaving = ref(false)
 const errorMessage = ref('')
@@ -19,8 +20,20 @@ const formName = ref('')
 const formResponse = ref(15)
 const formResolution = ref(45)
 const formDefault = ref(false)
+/** '' = no policy of its own; tasks then fall back to the property default. */
+const formPolicyId = ref('')
 
 const dialogTitle = computed(() => (editId.value ? 'Edit SLA' : 'New SLA'))
+const policyName = computed(() => new Map(policies.value.map(p => [p.id, p.name])))
+/**
+ * Only an ACTIVE policy may be linked; a link that went inactive since is
+ * kept visible (marked) so the admin sees why the API will refuse it as is.
+ */
+const policyOptions = computed(() => {
+  const active = policies.value.filter(p => p.isActive)
+  const linked = policies.value.find(p => p.id === formPolicyId.value)
+  return linked && !linked.isActive ? [...active, linked] : active
+})
 /** Both budgets count from activation, so resolution IS the total window. */
 const totalWindow = computed(() => formatMinutes(Number(formResolution.value || 0)))
 
@@ -61,7 +74,9 @@ async function load() {
   isLoading.value = true
   errorMessage.value = ''
   try {
-    slas.value = await api.listSlas()
+    const [loadedSlas, loadedPolicies] = await Promise.all([api.listSlas(), api.listEscalationPolicies()])
+    slas.value = loadedSlas
+    policies.value = loadedPolicies
   }
   catch (e) {
     errorMessage.value = (e as Error).message
@@ -77,6 +92,7 @@ function openCreate() {
   formResponse.value = 15
   formResolution.value = 45
   formDefault.value = slas.value.length === 0
+  formPolicyId.value = ''
   formError.value = ''
   dialogOpen.value = true
 }
@@ -87,6 +103,7 @@ function openEdit(sla: Sla) {
   formResponse.value = sla.responseTime
   formResolution.value = sla.resolutionTime
   formDefault.value = sla.isDefault
+  formPolicyId.value = sla.escalationPolicyId ?? ''
   formError.value = ''
   dialogOpen.value = true
 }
@@ -102,6 +119,9 @@ async function save() {
       responseTime: Number(formResponse.value),
       resolutionTime: Number(formResolution.value),
       isDefault: formDefault.value,
+      // Always sent: the key ABSENT would keep the stored link, so what the
+      // select shows is what is saved — null clears it.
+      escalationPolicyId: formPolicyId.value || null,
     })
     await load()
     dialogOpen.value = false
@@ -151,7 +171,7 @@ onMounted(load)
       </CardContent>
     </Card>
 
-    <TableSkeleton v-if="isLoading && slas.length === 0" :rows="4" :columns="5" />
+    <TableSkeleton v-if="isLoading && slas.length === 0" :rows="4" :columns="6" />
 
     <Card v-else class="overflow-hidden rounded-xl pt-0">
       <CardContent class="p-0">
@@ -161,6 +181,7 @@ onMounted(load)
               <TableHead>Name</TableHead>
               <TableHead>Response</TableHead>
               <TableHead>Resolution</TableHead>
+              <TableHead>Escalation</TableHead>
               <TableHead />
               <TableHead class="text-right" />
             </TableRow>
@@ -170,6 +191,7 @@ onMounted(load)
               <TableCell class="font-medium text-foreground">{{ sla.name }}</TableCell>
               <TableCell class="text-foreground">{{ formatMinutes(sla.responseTime) }}</TableCell>
               <TableCell class="text-foreground">{{ formatMinutes(sla.resolutionTime) }}</TableCell>
+              <TableCell class="text-foreground">{{ sla.escalationPolicyId ? (policyName.get(sla.escalationPolicyId) ?? sla.escalationPolicyId) : '—' }}</TableCell>
               <TableCell>
                 <Badge v-if="sla.isDefault" variant="success">
                   <StarIcon />
@@ -184,7 +206,7 @@ onMounted(load)
               </TableCell>
             </TableRow>
             <TableRow v-if="!isLoading && slas.length === 0">
-              <TableCell colspan="5" class="py-10 text-center text-sm text-muted-foreground">
+              <TableCell colspan="6" class="py-10 text-center text-sm text-muted-foreground">
                 No SLAs yet.
               </TableCell>
             </TableRow>
@@ -231,6 +253,22 @@ onMounted(load)
           <p v-else class="text-xs text-muted-foreground">
             A task on this SLA is late after <span class="font-semibold text-foreground">{{ totalWindow }}</span> of open hours.
           </p>
+
+          <div class="space-y-2">
+            <Label>Escalation policy</Label>
+            <Select :model-value="toSelectValue(formPolicyId)" @update:model-value="value => formPolicyId = fromSelectValue(value)">
+              <SelectTrigger class="w-full">
+                <SelectValue placeholder="None — property default" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem :value="SELECT_EMPTY">None — property default</SelectItem>
+                <SelectItem v-for="policy in policyOptions" :key="policy.id" :value="policy.id">
+                  {{ policy.name }}{{ policy.isActive ? '' : ' (inactive)' }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p class="text-xs text-muted-foreground">A routing rule's own policy wins over this one for the tasks it routes.</p>
+          </div>
 
           <div class="flex items-center justify-between rounded-lg border px-4 py-3">
             <div>

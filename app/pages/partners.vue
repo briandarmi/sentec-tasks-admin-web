@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { CheckIcon, CopyIcon, KeyRoundIcon, PlugZapIcon, PlusIcon, TriangleAlertIcon } from '@lucide/vue'
+import { CheckIcon, CopyIcon, KeyRoundIcon, PlugZapIcon, PlusIcon, SlidersHorizontalIcon, TriangleAlertIcon } from '@lucide/vue'
 import { useTasksApi } from '~/composables/useTasksApi'
-import type { Partner, SourceApp } from '~/utils/clientFakeApi'
+import type { Partner, PartnerCapability, SourceApp } from '~/utils/clientFakeApi'
 import { relativeTime } from '~/utils/task-ui'
 
 /**
@@ -10,6 +10,11 @@ import { relativeTime } from '~/utils/task-ui'
  * secret exactly once, and controlled by ONE switch — isActive. There is no
  * rotate-secret route: revocation IS deactivation (verified per request, no
  * caching), and a new secret means registering a new partner.
+ *
+ * feat/ems-staff-sync adds `capabilities`: what a partner may do beyond
+ * dispatching tasks. `staff_sync` lets it push employee changes (Sentec
+ * EMS). Read on every request, so a revoke applies from the partner's next
+ * call.
  */
 const api = useTasksApi()
 
@@ -22,6 +27,39 @@ const formError = ref('')
 
 const createOpen = ref(false)
 const formName = ref('')
+const formStaffSync = ref(false)
+
+const CAPABILITY_LABELS: Record<PartnerCapability, string> = { staff_sync: 'Staff sync' }
+
+/** Edit capabilities: one dialog, one checkbox per known capability. */
+const capsTarget = ref<Partner | null>(null)
+const capsStaffSync = ref(false)
+const capsError = ref('')
+
+function openCaps(partner: Partner) {
+  capsTarget.value = partner
+  capsStaffSync.value = partner.capabilities.includes('staff_sync')
+  capsError.value = ''
+}
+
+async function saveCaps() {
+  const target = capsTarget.value
+  if (!target || isSaving.value) return
+  isSaving.value = true
+  capsError.value = ''
+  try {
+    const capabilities: PartnerCapability[] = capsStaffSync.value ? ['staff_sync'] : []
+    await api.updatePartner(target.id, { capabilities })
+    capsTarget.value = null
+    await load()
+  }
+  catch (e) {
+    capsError.value = (e as Error).message
+  }
+  finally {
+    isSaving.value = false
+  }
+}
 
 /**
  * The one and only time a secret is visible. It is encrypted at rest and no
@@ -50,6 +88,7 @@ async function load() {
 
 function openCreate() {
   formName.value = ''
+  formStaffSync.value = false
   formError.value = ''
   createOpen.value = true
 }
@@ -59,7 +98,7 @@ async function save() {
   isSaving.value = true
   formError.value = ''
   try {
-    const created = await api.registerPartner(formName.value.trim())
+    const created = await api.registerPartner(formName.value.trim(), formStaffSync.value ? ['staff_sync'] : [])
     createOpen.value = false
     revealed.value = { name: created.name, secret: created.secret }
     await load()
@@ -153,7 +192,7 @@ onMounted(load)
       </div>
     </div>
 
-    <TableSkeleton v-if="isLoading && partners.length === 0" :rows="4" :columns="3" />
+    <TableSkeleton v-if="isLoading && partners.length === 0" :rows="4" :columns="4" />
 
     <Card v-else class="overflow-hidden rounded-xl pt-0">
       <CardContent class="p-0">
@@ -162,6 +201,7 @@ onMounted(load)
             <TableHeader>
               <TableRow>
                 <TableHead>Partner</TableHead>
+                <TableHead>Capabilities</TableHead>
                 <TableHead>Registered</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead class="text-right" />
@@ -170,6 +210,12 @@ onMounted(load)
             <TableBody>
               <TableRow v-for="partner in partners" :key="partner.id">
                 <TableCell class="font-medium text-foreground">{{ partner.name }}</TableCell>
+                <TableCell>
+                  <div v-if="partner.capabilities.length" class="flex flex-wrap gap-1">
+                    <Badge v-for="cap in partner.capabilities" :key="cap" variant="outline">{{ CAPABILITY_LABELS[cap] ?? cap }}</Badge>
+                  </div>
+                  <span v-else class="text-sm text-muted-foreground">Dispatch only</span>
+                </TableCell>
                 <TableCell class="whitespace-nowrap text-muted-foreground">{{ relativeTime(partner.createdAt) }}</TableCell>
                 <TableCell>
                   <Badge :variant="partner.isActive ? 'success' : 'secondary'">
@@ -177,13 +223,19 @@ onMounted(load)
                   </Badge>
                 </TableCell>
                 <TableCell class="text-right">
-                  <Button size="sm" variant="outline" @click="toggleTarget = partner">
-                    {{ partner.isActive ? 'Deactivate' : 'Reactivate' }}
-                  </Button>
+                  <div class="flex items-center justify-end gap-2">
+                    <Button size="sm" variant="outline" :aria-label="`Edit capabilities of ${partner.name}`" @click="openCaps(partner)">
+                      <SlidersHorizontalIcon />
+                      Edit capabilities
+                    </Button>
+                    <Button size="sm" variant="outline" @click="toggleTarget = partner">
+                      {{ partner.isActive ? 'Deactivate' : 'Reactivate' }}
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
               <TableRow v-if="!isLoading && partners.length === 0">
-                <TableCell colspan="4" class="py-10 text-center text-sm text-muted-foreground">
+                <TableCell colspan="5" class="py-10 text-center text-sm text-muted-foreground">
                   No partners registered. Tasks still works standalone — partners are only needed to accept work from another app.
                 </TableCell>
               </TableRow>
@@ -239,6 +291,16 @@ onMounted(load)
             <Label for="partner-name">Name</Label>
             <Input id="partner-name" v-model="formName" placeholder="e.g. Sentec PMS" />
           </div>
+          <div class="space-y-2">
+            <Label>Capabilities</Label>
+            <label class="flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm text-foreground">
+              <Checkbox v-model="formStaffSync" class="mt-0.5" />
+              <span>
+                Staff sync (EMS pushes employee changes)
+                <span class="block text-xs text-muted-foreground">Lets this partner create, update and remove staff at the properties it is linked to. Every partner may dispatch tasks.</span>
+              </span>
+            </label>
+          </div>
           <Alert>
             <TriangleAlertIcon />
             <AlertTitle>The secret is shown once</AlertTitle>
@@ -250,6 +312,37 @@ onMounted(load)
           <Button variant="outline" :disabled="isSaving" @click="createOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formName.trim()" @click="save">
             {{ isSaving ? 'Registering…' : 'Register' }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="Boolean(capsTarget)" @update:open="value => { if (!value) capsTarget = null }">
+      <DialogContent class="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Capabilities of {{ capsTarget?.name }}</DialogTitle>
+          <DialogDescription>Checked on every request — a change applies from the partner's next call.</DialogDescription>
+        </DialogHeader>
+
+        <Alert v-if="capsError" variant="destructive">
+          <AlertTitle>Could not update</AlertTitle>
+          <AlertDescription>{{ capsError }}</AlertDescription>
+        </Alert>
+
+        <div class="space-y-5 py-2">
+          <label class="flex items-start gap-2.5 rounded-lg border px-4 py-3 text-sm text-foreground">
+            <Checkbox v-model="capsStaffSync" class="mt-0.5" />
+            <span>
+              Staff sync (EMS pushes employee changes)
+              <span class="block text-xs text-muted-foreground">Revoking it does not unlink any property or remove anyone; the partner's pushes are simply refused.</span>
+            </span>
+          </label>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" :disabled="isSaving" @click="capsTarget = null">Cancel</Button>
+          <Button :disabled="isSaving" @click="saveCaps">
+            {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
         </DialogFooter>
       </DialogContent>
