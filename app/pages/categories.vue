@@ -116,7 +116,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -147,7 +147,7 @@ onMounted(load)
                 </Badge>
               </TableCell>
               <TableCell class="text-right">
-                <Button size="sm" variant="outline" :aria-label="`Edit ${category.name}`" @click="openEdit(category)">
+                <Button size="sm" variant="secondary" :aria-label="`Edit ${category.name}`" @click="openEdit(category)">
                   <PencilIcon />
                   Edit
                 </Button>
@@ -207,7 +207,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>

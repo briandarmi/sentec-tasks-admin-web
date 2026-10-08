@@ -303,7 +303,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -335,11 +335,11 @@ onMounted(load)
                 <TableCell class="text-muted-foreground">{{ hoursSummary(schedule) }}</TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Weekly hours for ${schedule.name}`" @click="openHours(schedule)">
+                    <Button size="sm" variant="secondary" :aria-label="`Weekly hours for ${schedule.name}`" @click="openHours(schedule)">
                       <ClockIcon />
                       Hours
                     </Button>
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${schedule.name}`" @click="openEdit(schedule)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${schedule.name}`" @click="openEdit(schedule)">
                       <PencilIcon />
                       Edit
                     </Button>
@@ -400,7 +400,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="detailsSaving" @click="detailsOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="detailsSaving" @click="detailsOpen = false">Cancel</Button>
           <Button :disabled="!canSaveDetails" @click="saveDetails">
             {{ detailsSaving ? 'Saving…' : 'Save' }}
           </Button>
@@ -472,7 +472,7 @@ onMounted(load)
                 <p class="text-sm font-semibold text-foreground">Exceptions</p>
                 <p class="text-xs text-muted-foreground">Dated overrides — a public holiday closure, a one-off late opening.</p>
               </div>
-              <Button size="sm" variant="outline" type="button" @click="addException">
+              <Button size="sm" variant="secondary" type="button" @click="addException">
                 <PlusIcon />
                 Add exception
               </Button>
@@ -522,7 +522,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="hoursSaving" @click="hoursOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="hoursSaving" @click="hoursOpen = false">Cancel</Button>
           <Button :disabled="hoursSaving" @click="saveHours">
             {{ hoursSaving ? 'Saving…' : 'Save hours' }}
           </Button>

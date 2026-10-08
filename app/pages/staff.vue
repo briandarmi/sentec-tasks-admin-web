@@ -479,16 +479,16 @@ onMounted(load)
       :icon="UsersIcon"
     >
       <template #actions>
-        <Button size="sm" :variant="needsAttentionOnly ? 'default' : 'outline'" :aria-pressed="needsAttentionOnly" @click="toggleNeedsAttention">
+        <Button size="sm" :variant="needsAttentionOnly ? 'default' : 'secondary'" :aria-pressed="needsAttentionOnly" @click="toggleNeedsAttention">
           <TriangleAlertIcon />
           Needs attention
         </Button>
-        <Button size="sm" variant="outline" @click="openImport">
+        <Button size="sm" variant="secondary" @click="openImport">
           <FileUpIcon />
           Import roster
         </Button>
         <!-- Only at an EMS-mapped property; the probe decides. -->
-        <Button v-if="emsLinked" size="sm" variant="outline" @click="openEms">
+        <Button v-if="emsLinked" size="sm" variant="secondary" @click="openEms">
           <CloudDownloadIcon />
           Add from EMS
         </Button>
@@ -504,7 +504,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -566,14 +566,14 @@ onMounted(load)
                 </TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${member.name}`" @click="openEdit(member)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${member.name}`" @click="openEdit(member)">
                       <PencilIcon />
                       Edit
                     </Button>
                     <Button
                       v-if="canRemove(member)"
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       class="text-muted-foreground hover:text-destructive"
                       :aria-label="`Remove ${member.name} from this property`"
                       @click="removeTarget = member"
@@ -696,7 +696,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
@@ -724,11 +724,11 @@ onMounted(load)
         <div class="space-y-5 py-2">
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-sm text-muted-foreground">Start from a template:</span>
-            <Button size="sm" variant="outline" :disabled="Boolean(importBusy)" @click="downloadTemplate('csv')">
+            <Button size="sm" variant="secondary" :disabled="Boolean(importBusy)" @click="downloadTemplate('csv')">
               <DownloadIcon />
               {{ importBusy === 'csv' ? 'Preparing…' : 'CSV' }}
             </Button>
-            <Button size="sm" variant="outline" :disabled="Boolean(importBusy)" @click="downloadTemplate('xlsx')">
+            <Button size="sm" variant="secondary" :disabled="Boolean(importBusy)" @click="downloadTemplate('xlsx')">
               <DownloadIcon />
               {{ importBusy === 'xlsx' ? 'Preparing…' : 'XLSX (with department drop-down)' }}
             </Button>
@@ -789,7 +789,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="importBusy === 'import'" @click="importOpen = false">{{ importMeta ? 'Close' : 'Cancel' }}</Button>
+          <Button variant="secondary" :disabled="importBusy === 'import'" @click="importOpen = false">{{ importMeta ? 'Close' : 'Cancel' }}</Button>
           <Button :disabled="!importFile || Boolean(importBusy)" @click="runImport">
             <FileUpIcon />
             {{ importBusy === 'import' ? 'Importing…' : importMeta ? 'Import again' : 'Import' }}
@@ -816,7 +816,7 @@ onMounted(load)
         <div class="space-y-5 py-2">
           <form class="flex items-center gap-2" @submit.prevent="searchEms">
             <Input v-model="emsQuery" placeholder="Search by name, email or EMS id" aria-label="Search EMS employees" />
-            <Button type="submit" size="sm" variant="outline" :disabled="emsLoading">
+            <Button type="submit" size="sm" variant="secondary" :disabled="emsLoading">
               <SearchIcon />
               Search
             </Button>
@@ -870,8 +870,8 @@ onMounted(load)
           <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <span>{{ emsMeta.total }} in EMS · page {{ emsMeta.page }} of {{ emsPageCount }} · {{ emsPickedCount }} picked</span>
             <div class="flex items-center gap-2">
-              <Button size="sm" variant="outline" :disabled="emsLoading || emsMeta.page <= 1" @click="loadEmsPage(emsMeta.page - 1)">Previous</Button>
-              <Button size="sm" variant="outline" :disabled="emsLoading || emsMeta.page >= emsPageCount" @click="loadEmsPage(emsMeta.page + 1)">Next</Button>
+              <Button size="sm" variant="secondary" :disabled="emsLoading || emsMeta.page <= 1" @click="loadEmsPage(emsMeta.page - 1)">Previous</Button>
+              <Button size="sm" variant="secondary" :disabled="emsLoading || emsMeta.page >= emsPageCount" @click="loadEmsPage(emsMeta.page + 1)">Next</Button>
             </div>
           </div>
 
@@ -930,7 +930,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="emsSubmitting" @click="emsOpen = false">{{ emsResults.length ? 'Close' : 'Cancel' }}</Button>
+          <Button variant="secondary" :disabled="emsSubmitting" @click="emsOpen = false">{{ emsResults.length ? 'Close' : 'Cancel' }}</Button>
           <Button :disabled="emsSubmitting || emsPickedCount === 0" @click="submitEms">
             <CloudDownloadIcon />
             {{ emsSubmitting ? 'Adding…' : `Add ${emsPickedCount || ''}`.trim() }}

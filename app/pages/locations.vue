@@ -191,7 +191,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -241,7 +241,7 @@ onMounted(load)
                     </Badge>
                   </TableCell>
                   <TableCell class="text-right">
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${location.name}`" @click="openEditLoc(location)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${location.name}`" @click="openEditLoc(location)">
                       <PencilIcon />
                       Edit
                     </Button>
@@ -295,7 +295,7 @@ onMounted(load)
                     </Badge>
                   </TableCell>
                   <TableCell class="text-right">
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${type.name}`" @click="openEditType(type)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${type.name}`" @click="openEditType(type)">
                       <PencilIcon />
                       Edit
                     </Button>
@@ -363,7 +363,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="typeSaving" @click="typeDialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="typeSaving" @click="typeDialogOpen = false">Cancel</Button>
           <Button :disabled="!canSaveType" @click="saveType">
             {{ typeSaving ? 'Saving…' : 'Save' }}
           </Button>
@@ -425,7 +425,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="locSaving" @click="locDialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="locSaving" @click="locDialogOpen = false">Cancel</Button>
           <Button :disabled="!canSaveLoc" @click="saveLoc">
             {{ locSaving ? 'Saving…' : 'Save' }}
           </Button>

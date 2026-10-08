@@ -232,7 +232,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -297,13 +297,13 @@ onMounted(load)
                 <TableCell class="max-w-56 truncate text-muted-foreground">{{ rule.remark ?? '—' }}</TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Edit rule ${matchText(rule)}`" @click="openEdit(rule)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit rule ${matchText(rule)}`" @click="openEdit(rule)">
                       <PencilIcon />
                       Edit
                     </Button>
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       class="text-muted-foreground hover:text-destructive"
                       :aria-label="`Delete rule ${matchText(rule)}`"
                       @click="requestDelete(rule)"
@@ -419,7 +419,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="isSaving || (needsMatchValue && !formMatchValue) || !formDepartmentId || !formSlaId" @click="save">
             {{ isSaving ? 'Saving…' : 'Save rule' }}
           </Button>

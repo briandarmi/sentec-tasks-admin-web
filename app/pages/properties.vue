@@ -241,7 +241,7 @@ onMounted(load)
           </p>
           <div class="flex flex-wrap items-center gap-2">
             <code class="min-w-0 flex-1 overflow-x-auto rounded-lg border bg-background px-3 py-2 font-mono text-xs">{{ minted.password }}</code>
-            <Button size="sm" variant="ghost" @click="minted = null">Done</Button>
+            <Button size="sm" variant="secondary" @click="minted = null">Done</Button>
           </div>
         </div>
       </div>
@@ -268,11 +268,11 @@ onMounted(load)
                 <TableCell class="font-mono text-xs text-muted-foreground">{{ tenant.hotelRef }}</TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Partner IDs for ${tenant.name}`" @click="openSyncLinks(tenant)">
+                    <Button size="sm" variant="secondary" :aria-label="`Partner IDs for ${tenant.name}`" @click="openSyncLinks(tenant)">
                       <Link2Icon />
                       Partner IDs
                     </Button>
-                    <Button size="sm" variant="outline" @click="openFirstAdmin(tenant)">
+                    <Button size="sm" variant="secondary" @click="openFirstAdmin(tenant)">
                       <UserRoundPlusIcon />
                       First admin
                     </Button>
@@ -317,7 +317,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="provisionOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="provisionOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formName.trim() || !formHotelRef.trim()" @click="provision">
             {{ isSaving ? 'Provisioning…' : 'Provision' }}
           </Button>
@@ -352,7 +352,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="firstAdminOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="firstAdminOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formAdminName.trim() || !formAdminEmail.includes('@')" @click="createFirstAdmin">
             {{ isSaving ? 'Creating…' : 'Create admin' }}
           </Button>
@@ -391,10 +391,10 @@ onMounted(load)
                   <TableCell class="font-mono text-xs text-foreground">{{ link.syncId }}</TableCell>
                   <TableCell class="text-right">
                     <div class="flex items-center justify-end gap-1">
-                      <Button size="sm" variant="ghost" :disabled="syncSaving" @click="editSyncLink(link)">Replace</Button>
+                      <Button size="sm" variant="secondary" :disabled="syncSaving" @click="editSyncLink(link)">Replace</Button>
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         class="text-muted-foreground hover:text-destructive"
                         :disabled="syncSaving"
                         :aria-label="`Remove the ${link.partnerName} id`"
@@ -449,7 +449,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="syncSaving" @click="syncOpen = false">Close</Button>
+          <Button variant="secondary" :disabled="syncSaving" @click="syncOpen = false">Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

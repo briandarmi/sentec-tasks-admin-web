@@ -181,12 +181,12 @@ onMounted(load)
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <code class="min-w-0 flex-1 overflow-x-auto rounded-lg border bg-background px-3 py-2 font-mono text-xs">{{ revealed.secret }}</code>
-            <Button size="sm" variant="outline" @click="copySecret">
+            <Button size="sm" variant="secondary" @click="copySecret">
               <CheckIcon v-if="copied" />
               <CopyIcon v-else />
               {{ copied ? 'Copied' : 'Copy' }}
             </Button>
-            <Button size="sm" variant="ghost" @click="revealed = null">Done</Button>
+            <Button size="sm" variant="secondary" @click="revealed = null">Done</Button>
           </div>
         </div>
       </div>
@@ -224,11 +224,11 @@ onMounted(load)
                 </TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Edit capabilities of ${partner.name}`" @click="openCaps(partner)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit capabilities of ${partner.name}`" @click="openCaps(partner)">
                       <SlidersHorizontalIcon />
                       Edit capabilities
                     </Button>
-                    <Button size="sm" variant="outline" @click="toggleTarget = partner">
+                    <Button size="sm" variant="secondary" @click="toggleTarget = partner">
                       {{ partner.isActive ? 'Deactivate' : 'Reactivate' }}
                     </Button>
                   </div>
@@ -309,7 +309,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="createOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="createOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formName.trim()" @click="save">
             {{ isSaving ? 'Registering…' : 'Register' }}
           </Button>
@@ -340,7 +340,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="capsTarget = null">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="capsTarget = null">Cancel</Button>
           <Button :disabled="isSaving" @click="saveCaps">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>

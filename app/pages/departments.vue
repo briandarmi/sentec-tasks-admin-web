@@ -102,7 +102,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -134,12 +134,12 @@ onMounted(load)
                     </div>
                   </TableCell>
                   <TableCell class="text-right">
-                    <Button v-if="dept.isActive" size="sm" variant="outline" :disabled="isSaving" @click="deactivateTarget = dept">
+                    <Button v-if="dept.isActive" size="sm" variant="secondary" :disabled="isSaving" @click="deactivateTarget = dept">
                       Deactivate
                     </Button>
                     <!-- A retired master cannot come back at any hotel; the button says why rather than failing. -->
                     <div v-else class="inline-flex flex-col items-end gap-0.5">
-                      <Button size="sm" variant="outline" :disabled="isSaving || !dept.masterIsActive" :title="dept.masterIsActive ? '' : 'Retired by the platform'" @click="setActive(dept, true)">
+                      <Button size="sm" variant="secondary" :disabled="isSaving || !dept.masterIsActive" :title="dept.masterIsActive ? '' : 'Retired by the platform'" @click="setActive(dept, true)">
                         Reactivate
                       </Button>
                       <span v-if="!dept.masterIsActive" class="text-[11px] text-muted-foreground">Retired by the platform</span>
@@ -180,7 +180,7 @@ onMounted(load)
               </div>
               <p v-if="dept.description" class="truncate text-xs text-muted-foreground">{{ dept.description }}</p>
             </div>
-            <Button size="sm" variant="outline" :disabled="isSaving || !dept.isActive" @click="enable(dept.id)">
+            <Button size="sm" variant="secondary" :disabled="isSaving || !dept.isActive" @click="enable(dept.id)">
               <PlusIcon class="h-4 w-4" /> Enable here
             </Button>
           </div>

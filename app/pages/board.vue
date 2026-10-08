@@ -253,13 +253,13 @@ onMounted(load)
                 </TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${column.name}`" @click="openEdit(column)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${column.name}`" @click="openEdit(column)">
                       <PencilIcon />
                       Edit
                     </Button>
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       class="text-muted-foreground hover:text-destructive"
                       :aria-label="`Remove ${column.name}`"
                       @click="requestRemove(column)"
@@ -382,7 +382,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
@@ -420,7 +420,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isMoving" @click="moveDialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isMoving" @click="moveDialogOpen = false">Cancel</Button>
           <Button :disabled="!moveColumnId || isMoving" @click="performMove">
             {{ isMoving ? 'Moving…' : 'Move task' }}
           </Button>

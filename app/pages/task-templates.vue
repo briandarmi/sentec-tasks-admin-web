@@ -375,7 +375,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -460,7 +460,7 @@ onMounted(load)
                   <div class="flex items-center justify-end gap-2">
                     <Button
                       size="sm"
-                      variant="outline"
+                      variant="secondary"
                       :disabled="pendingIds.has(t.id)"
                       :aria-busy="pendingIds.has(t.id)"
                       :aria-label="`${t.isActive ? 'Pause' : 'Resume'} ${t.name}`"
@@ -469,13 +469,13 @@ onMounted(load)
                       <component :is="t.isActive ? PauseIcon : PlayIcon" />
                       {{ t.isActive ? 'Pause' : 'Resume' }}
                     </Button>
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${t.name}`" @click="openEdit(t)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${t.name}`" @click="openEdit(t)">
                       <PencilIcon />
                       Edit
                     </Button>
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       class="text-muted-foreground hover:text-destructive"
                       :disabled="pendingIds.has(t.id)"
                       :aria-label="`Archive ${t.name}`"
@@ -667,7 +667,7 @@ onMounted(load)
 
         <DialogFooter class="sm:items-center">
           <p v-if="formProblem" class="mr-auto text-xs font-medium text-muted-foreground">{{ formProblem }}</p>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>

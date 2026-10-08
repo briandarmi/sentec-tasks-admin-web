@@ -231,7 +231,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -273,11 +273,11 @@ onMounted(load)
                 </TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Members of ${team.name}`" @click="openMembers(team)">
+                    <Button size="sm" variant="secondary" :aria-label="`Members of ${team.name}`" @click="openMembers(team)">
                       <UsersRoundIcon />
                       Members
                     </Button>
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${team.name}`" @click="openEdit(team)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${team.name}`" @click="openEdit(team)">
                       <PencilIcon />
                       Edit
                     </Button>
@@ -338,7 +338,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
@@ -373,7 +373,7 @@ onMounted(load)
               <span class="text-sm font-medium text-foreground">{{ member.name }}</span>
               <Button
                 size="sm"
-                variant="ghost"
+                variant="secondary"
                 class="text-muted-foreground hover:text-destructive"
                 :disabled="isMemberPending(member.userId)"
                 :aria-busy="isMemberPending(member.userId)"
@@ -407,7 +407,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" @click="membersDialogOpen = false">Close</Button>
+          <Button variant="secondary" @click="membersDialogOpen = false">Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

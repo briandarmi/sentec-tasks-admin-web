@@ -199,7 +199,7 @@ onMounted(load)
                 </Badge>
               </TableCell>
               <TableCell class="text-right">
-                <Button size="sm" variant="outline" @click="openEdit(sla)">
+                <Button size="sm" variant="secondary" @click="openEdit(sla)">
                   <PencilIcon />
                   Edit
                 </Button>
@@ -282,7 +282,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="requestSave">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>

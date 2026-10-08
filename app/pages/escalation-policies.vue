@@ -182,7 +182,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -232,7 +232,7 @@ onMounted(load)
                 </TableCell>
                 <TableCell class="whitespace-nowrap text-muted-foreground">{{ relativeTime(policy.updatedAt) }}</TableCell>
                 <TableCell class="text-right">
-                  <Button size="sm" variant="outline" :aria-label="`Edit ${policy.name}`" @click="openEdit(policy)">
+                  <Button size="sm" variant="secondary" :aria-label="`Edit ${policy.name}`" @click="openEdit(policy)">
                     <PencilIcon />
                     Edit
                   </Button>
@@ -293,7 +293,7 @@ onMounted(load)
                 <p class="text-sm font-semibold text-foreground">Steps</p>
                 <p class="text-xs text-muted-foreground">Up to {{ ESCALATION_MAX_STEPS }}. The order here is the firing order.</p>
               </div>
-              <Button size="sm" variant="outline" :disabled="!canAddStep" @click="addStep">
+              <Button size="sm" variant="secondary" :disabled="!canAddStep" @click="addStep">
                 <PlusIcon />
                 Add step
               </Button>
@@ -422,7 +422,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="requestSave">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>

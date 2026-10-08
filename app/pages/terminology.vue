@@ -101,7 +101,7 @@ onMounted(load)
       <AlertTitle>Could not load the terminology</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ loadError }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 

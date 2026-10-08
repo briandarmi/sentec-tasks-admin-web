@@ -177,7 +177,7 @@ onMounted(load)
       :icon="NetworkIcon"
     >
       <template #actions>
-        <Button size="sm" variant="outline" @click="membershipOpen = true; formMemberGroupId = ''; formMemberHotel = ''; formError = ''">
+        <Button size="sm" variant="secondary" @click="membershipOpen = true; formMemberGroupId = ''; formMemberHotel = ''; formError = ''">
           Add property to group
         </Button>
         <Button size="sm" @click="createOpen = true; formGroupName = ''; formError = ''">
@@ -237,7 +237,7 @@ onMounted(load)
                 <TableHead>Holder</TableHead>
                 <TableHead>Group</TableHead>
                 <TableHead class="text-right">
-                  <Button size="sm" variant="outline" @click="grantOpen = true; formGrantGroupId = ''; formGrantHotel = ''; formGrantStaffId = ''; formError = ''">
+                  <Button size="sm" variant="secondary" @click="grantOpen = true; formGrantGroupId = ''; formGrantHotel = ''; formGrantStaffId = ''; formError = ''">
                     Grant access
                   </Button>
                 </TableHead>
@@ -253,7 +253,7 @@ onMounted(load)
                 <TableCell class="text-right">
                   <Button
                     size="sm"
-                    variant="ghost"
+                    variant="secondary"
                     class="text-muted-foreground hover:text-destructive"
                     @click="revokeTarget = { staffId: row.staffId, groupId: row.groupId, name: row.name, groupName: row.groupName }"
                   >
@@ -285,7 +285,7 @@ onMounted(load)
           <Input id="group-name" v-model="formGroupName" placeholder="e.g. Kamuela Villas" maxlength="100" />
         </div>
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="createOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="createOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formGroupName.trim()" @click="createGroup">
             {{ isSaving ? 'Creating…' : 'Create group' }}
           </Button>
@@ -326,7 +326,7 @@ onMounted(load)
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="membershipOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="membershipOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formMemberGroupId || !formMemberHotel" @click="addMembership">
             {{ isSaving ? 'Saving…' : 'Add to group' }}
           </Button>
@@ -378,7 +378,7 @@ onMounted(load)
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="grantOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="grantOpen = false">Cancel</Button>
           <Button :disabled="isSaving || !formGrantGroupId || !formGrantStaffId" @click="grant">
             {{ isSaving ? 'Granting…' : 'Grant access' }}
           </Button>

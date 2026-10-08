@@ -142,7 +142,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -173,13 +173,13 @@ onMounted(load)
                 <TableCell class="whitespace-nowrap text-muted-foreground">{{ relativeTime(dept.updatedAt) }}</TableCell>
                 <TableCell class="text-right">
                   <div class="flex items-center justify-end gap-2">
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${dept.name}`" @click="openEdit(dept)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${dept.name}`" @click="openEdit(dept)">
                       <PencilIcon />
                       Edit
                     </Button>
                     <Button
                       size="sm"
-                      variant="ghost"
+                      variant="secondary"
                       class="text-muted-foreground hover:text-destructive"
                       :aria-label="`Delete ${dept.name}`"
                       @click="deleteTarget = dept"
@@ -252,7 +252,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>

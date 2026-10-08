@@ -130,7 +130,13 @@ Eleven files are **duplicated** between this app and the staff workspace
 each repo tests the copy it ships. `app/composables/useConsoleAccess.ts` is
 **not** in that set: it is this app's own rule and has no counterpart.
 `pnpm check:shared` fails when the copies differ and skips in a standalone
-clone.
+clone. Since 2026-10-08 it also covers the brand layer, which is identical
+across all four Sentec consoles, not only this pair: `tailwind.css`, the
+brand marks (`SentinelTechLogo`, `SentinelTechIcon`, `ProductIcon`, `AppLogo`),
+`utils/sentec-products.ts` and the design-system page. The one per-app brand
+fact, `app/utils/app-product.ts`, is deliberately not checked — it is `null`
+here because Sentec Tasks has no entry in the design system's product roster
+yet, so the console wears the Sentinel Tech icon mark in Sentinel Blue.
 
 ## Screens
 

@@ -202,7 +202,7 @@ onMounted(load)
       <AlertTitle>Something went wrong</AlertTitle>
       <AlertDescription class="space-y-2">
         <p>{{ errorMessage }}</p>
-        <Button size="sm" variant="outline" @click="load">Retry</Button>
+        <Button size="sm" variant="secondary" @click="load">Retry</Button>
       </AlertDescription>
     </Alert>
 
@@ -284,7 +284,7 @@ onMounted(load)
                     </Badge>
                   </TableCell>
                   <TableCell class="text-right">
-                    <Button size="sm" variant="outline" :aria-label="`Edit ${item.name}`" @click="openEdit(item)">
+                    <Button size="sm" variant="secondary" :aria-label="`Edit ${item.name}`" @click="openEdit(item)">
                       <PencilIcon />
                       Edit
                     </Button>
@@ -393,7 +393,7 @@ onMounted(load)
                 <p class="text-sm font-semibold text-foreground">Checklist</p>
                 <p class="text-xs text-muted-foreground">Steps seeded onto every task raised from this item. Blank steps are dropped.</p>
               </div>
-              <Button size="sm" variant="outline" type="button" @click="addChecklistStep">
+              <Button size="sm" variant="secondary" type="button" @click="addChecklistStep">
                 <PlusIcon />
                 Add step
               </Button>
@@ -428,7 +428,7 @@ onMounted(load)
         </div>
 
         <DialogFooter>
-          <Button variant="outline" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
+          <Button variant="secondary" :disabled="isSaving" @click="dialogOpen = false">Cancel</Button>
           <Button :disabled="!canSave" @click="save">
             {{ isSaving ? 'Saving…' : 'Save' }}
           </Button>
